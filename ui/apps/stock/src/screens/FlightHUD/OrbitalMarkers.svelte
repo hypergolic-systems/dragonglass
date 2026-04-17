@@ -77,6 +77,8 @@
   const antiNormal = new THREE.Vector3();
   const radialOut = new THREE.Vector3();
   const radialIn = new THREE.Vector3();
+  const targetPrograde = new THREE.Vector3();
+  const targetRetrograde = new THREE.Vector3();
   const basisUp = new THREE.Vector3();
   const basisRight = new THREE.Vector3();
   const basisProj = new THREE.Vector3();
@@ -112,43 +114,67 @@
   }
 
   useTask(() => {
+    // Orbital-velocity-derived markers (prograde/retrograde/normal/radial).
     prograde.copy(flight.orbitalVelocity);
     const speed = prograde.length();
-
     if (speed < MIN_VEL) {
-      // No velocity — no orbit frame at all.
-      for (const kind of MARKER_KINDS) setVisible(kind, null);
-      return;
-    }
-
-    prograde.divideScalar(speed);
-    retrograde.copy(prograde).negate();
-    setVisible('prograde', prograde);
-    setVisible('retrograde', retrograde);
-
-    // normal = v̂ × r̂. Collapses if velocity is parallel to radial
-    // (vertical ascent / descent). In that case we can't derive the
-    // radial markers either; hide the whole normal-radial subframe.
-    normal.crossVectors(prograde, RADIAL_UP);
-    const normalMag = normal.length();
-    if (normalMag < MIN_NORMAL) {
+      setVisible('prograde', null);
+      setVisible('retrograde', null);
       setVisible('normal', null);
       setVisible('anti-normal', null);
       setVisible('radial-out', null);
       setVisible('radial-in', null);
-      return;
-    }
-    normal.divideScalar(normalMag);
-    antiNormal.copy(normal).negate();
-    setVisible('normal', normal);
-    setVisible('anti-normal', antiNormal);
+    } else {
+      prograde.divideScalar(speed);
+      retrograde.copy(prograde).negate();
+      setVisible('prograde', prograde);
+      setVisible('retrograde', retrograde);
 
-    // radial-out = normal × prograde, already unit since both
-    // arguments are unit and orthogonal.
-    radialOut.crossVectors(normal, prograde);
-    radialIn.copy(radialOut).negate();
-    setVisible('radial-out', radialOut);
-    setVisible('radial-in', radialIn);
+      // normal = v̂ × r̂. Collapses if velocity is parallel to radial
+      // (vertical ascent / descent). In that case we can't derive the
+      // radial markers either; hide the whole normal-radial subframe.
+      normal.crossVectors(prograde, RADIAL_UP);
+      const normalMag = normal.length();
+      if (normalMag < MIN_NORMAL) {
+        setVisible('normal', null);
+        setVisible('anti-normal', null);
+        setVisible('radial-out', null);
+        setVisible('radial-in', null);
+      } else {
+        normal.divideScalar(normalMag);
+        antiNormal.copy(normal).negate();
+        setVisible('normal', normal);
+        setVisible('anti-normal', antiNormal);
+
+        // radial-out = normal × prograde, already unit since both
+        // arguments are unit and orthogonal.
+        radialOut.crossVectors(normal, prograde);
+        radialIn.copy(radialOut).negate();
+        setVisible('radial-out', radialOut);
+        setVisible('radial-in', radialIn);
+      }
+    }
+
+    // Target markers: prograde / retrograde relative to the targeted
+    // vessel or body. Independent of the orbital-velocity subframe —
+    // a landed vessel with a nearby orbiting target still gets
+    // meaningful target markers.
+    if (!flight.hasTarget) {
+      setVisible('target-prograde', null);
+      setVisible('target-retrograde', null);
+    } else {
+      targetPrograde.copy(flight.targetVelocity);
+      const tSpeed = targetPrograde.length();
+      if (tSpeed < MIN_VEL) {
+        setVisible('target-prograde', null);
+        setVisible('target-retrograde', null);
+      } else {
+        targetPrograde.divideScalar(tSpeed);
+        targetRetrograde.copy(targetPrograde).negate();
+        setVisible('target-prograde', targetPrograde);
+        setVisible('target-retrograde', targetRetrograde);
+      }
+    }
   });
 </script>
 

@@ -32,7 +32,7 @@
 //
 // Wire format (positional array):
 //   data: [vesselId, altAsl, altRadar, [vSurf...], [vOrb...],
-//          throttle, sas, rcs, [qx,qy,qz,qw], [wx,wy,wz]]
+//          throttle, sas, rcs, [qx,qy,qz,qw], [wx,wy,wz], vTgt?]
 //
 //     vesselId   : string GUID of the active vessel
 //     altAsl     : altitude above sea level (meters)
@@ -47,6 +47,10 @@
 //     [q...]     : vessel orientation in surface frame (body-wire
 //                  basis: +Z = nose, +Y = dorsal, +X = starboard)
 //     [w...]     : angular velocity in vessel body frame, rad/s
+//     vTgt?      : target-relative orbital velocity vector in surface
+//                  frame, m/s, or null when no target is set.
+//                  Matches stock KSP:
+//                  `vessel.obt_velocity - target.GetObtVelocity()`.
 
 using System.Text;
 using Dragonglass.Telemetry.Util;
@@ -128,6 +132,19 @@ namespace Dragonglass.Telemetry.Topics
             set { if (_angularVelocity != value) { _angularVelocity = value; MarkDirty(); } }
         }
 
+        private bool _hasTarget;
+        private Vector3 _targetVelocity;
+        public bool HasTarget
+        {
+            get { return _hasTarget; }
+            set { if (_hasTarget != value) { _hasTarget = value; MarkDirty(); } }
+        }
+        public Vector3 TargetVelocity
+        {
+            get { return _targetVelocity; }
+            set { if (_targetVelocity != value) { _targetVelocity = value; MarkDirty(); } }
+        }
+
         private void Update()
         {
             if (FlightGlobals.fetch == null) return;
@@ -151,6 +168,19 @@ namespace Dragonglass.Telemetry.Topics
                 ? surfaceInverse * v.ReferenceTransform.rotation * BodyToWire
                 : Quaternion.identity;
             AngularVelocity = BodyToWire * v.angularVelocity;
+
+            ITargetable target = FlightGlobals.fetch.VesselTarget;
+            if (target != null)
+            {
+                HasTarget = true;
+                TargetVelocity = surfaceInverse *
+                    (Vector3)(v.obt_velocity - target.GetObtVelocity());
+            }
+            else
+            {
+                HasTarget = false;
+                TargetVelocity = Vector3.zero;
+            }
         }
 
         // KSP parts (including command/probe cores that drive the
@@ -233,6 +263,10 @@ namespace Dragonglass.Telemetry.Topics
             sb.Append(',');
 
             WriteVec3(sb, _angularVelocity);
+            sb.Append(',');
+
+            if (_hasTarget) WriteVec3(sb, _targetVelocity);
+            else Json.WriteNull(sb);
 
             sb.Append(']');
         }

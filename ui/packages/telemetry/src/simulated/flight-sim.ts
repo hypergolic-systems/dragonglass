@@ -69,6 +69,8 @@ export class FlightSimulation {
       rcs: false,
       orientation: new Quaternion(),
       angularVelocity: new Vector3(),
+      hasTarget: false,
+      targetVelocity: new Vector3(),
     };
   }
 

@@ -15,6 +15,8 @@ function defaults(): FlightData {
     rcs: false,
     orientation: new Quaternion(),
     angularVelocity: new Vector3(),
+    hasTarget: false,
+    targetVelocity: new Vector3(),
   };
 }
 
@@ -41,6 +43,7 @@ export function useFlightData(): FlightData {
       data.angularVelocity.copy(frame.angularVelocity);
       data.surfaceVelocity.copy(frame.surfaceVelocity);
       data.orbitalVelocity.copy(frame.orbitalVelocity);
+      data.targetVelocity.copy(frame.targetVelocity);
     });
   });
 

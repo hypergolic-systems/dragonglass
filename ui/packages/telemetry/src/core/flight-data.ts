@@ -24,4 +24,16 @@ export interface FlightData {
   rcs: boolean;
   orientation: Quaternion;
   angularVelocity: Vector3;   // rad/s, body frame
+  hasTarget: boolean;
+  /**
+   * Target-relative orbital velocity in the surface frame, m/s.
+   * Mirrors stock KSP's
+   * `ship_tgtVelocity = ship_obtVelocity − target.GetObtVelocity()`.
+   * Only meaningful when `hasTarget` is true; drives the navball's
+   * target-prograde / target-retrograde markers. Kept as a stable
+   * `Vector3` reference (zeroed when no target) to match the
+   * pre-allocated in-place-copy pattern used for every other vector
+   * on `FlightData`.
+   */
+  targetVelocity: Vector3;
 }

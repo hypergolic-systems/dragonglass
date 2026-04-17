@@ -4,7 +4,9 @@ export type MarkerKind =
   | 'radial-out'
   | 'radial-in'
   | 'normal'
-  | 'anti-normal';
+  | 'anti-normal'
+  | 'target-prograde'
+  | 'target-retrograde';
 
 export const MARKER_KINDS: readonly MarkerKind[] = [
   'prograde',
@@ -13,15 +15,19 @@ export const MARKER_KINDS: readonly MarkerKind[] = [
   'radial-in',
   'normal',
   'anti-normal',
+  'target-prograde',
+  'target-retrograde',
 ] as const;
 
 export const MARKER_COLOR: Record<MarkerKind, string> = {
-  prograde:      '#ffd95a',
-  retrograde:    '#ffd95a',
-  'radial-out':  '#70dfff',
-  'radial-in':   '#70dfff',
-  normal:        '#c68cff',
-  'anti-normal': '#c68cff',
+  prograde:            '#ffd95a',
+  retrograde:          '#ffd95a',
+  'radial-out':        '#70dfff',
+  'radial-in':         '#70dfff',
+  normal:              '#c68cff',
+  'anti-normal':       '#c68cff',
+  'target-prograde':   '#ff72d6',
+  'target-retrograde': '#ff72d6',
 };
 
 export function drawNavballTexture(): HTMLCanvasElement {
@@ -292,6 +298,43 @@ export function drawMarkerTexture(kind: MarkerKind): HTMLCanvasElement {
       ctx.beginPath();
       ctx.arc(cx, cy - h * 0.08, 4, 0, Math.PI * 2);
       ctx.fill();
+      break;
+    }
+    case 'target-prograde': {
+      // Square + dot, rotated 45° to read as a diamond — matches
+      // stock KSP's target-prograde glyph.
+      ctx.lineWidth = 5;
+      const d = r * 0.95;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - d);
+      ctx.lineTo(cx + d, cy);
+      ctx.lineTo(cx, cy + d);
+      ctx.lineTo(cx - d, cy);
+      ctx.closePath();
+      ctx.stroke();
+      dot(4);
+      stubsAt([0, Math.PI, -Math.PI / 2]);
+      break;
+    }
+    case 'target-retrograde': {
+      ctx.lineWidth = 5;
+      const d = r * 0.95;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - d);
+      ctx.lineTo(cx + d, cy);
+      ctx.lineTo(cx, cy + d);
+      ctx.lineTo(cx - d, cy);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.lineWidth = 6;
+      const x = r * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(cx - x, cy - x);
+      ctx.lineTo(cx + x, cy + x);
+      ctx.moveTo(cx + x, cy - x);
+      ctx.lineTo(cx - x, cy + x);
+      ctx.stroke();
+      stubsAt([0, Math.PI / 2, Math.PI, -Math.PI / 2]);
       break;
     }
   }

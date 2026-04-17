@@ -28,6 +28,7 @@ type FlightWire = [
   boolean,                             // rcs
   [number, number, number, number],    // orientation quat (x, y, z, w)
   [number, number, number],            // angular velocity
+  [number, number, number] | null,     // target-relative velocity, null if no target
 ];
 
 const clockScratch: ClockData = { ut: 0, met: null };
@@ -49,6 +50,8 @@ const flightScratch: FlightData = {
   rcs: false,
   orientation: new Quaternion(),
   angularVelocity: new Vector3(),
+  hasTarget: false,
+  targetVelocity: new Vector3(),
 };
 
 export function decodeClock(raw: unknown): ClockData {
@@ -82,5 +85,13 @@ export function decodeFlight(raw: unknown): FlightData {
   flightScratch.orientation.set(q[0], q[1], q[2], q[3]);
   const w = a[9];
   flightScratch.angularVelocity.set(w[0], w[1], w[2]);
+  const vt = a[10];
+  if (vt === null) {
+    flightScratch.hasTarget = false;
+    flightScratch.targetVelocity.set(0, 0, 0);
+  } else {
+    flightScratch.hasTarget = true;
+    flightScratch.targetVelocity.set(vt[0], vt[1], vt[2]);
+  }
   return flightScratch;
 }
