@@ -67,8 +67,9 @@ sample, must discard and retry.
 
 ```text
 1. s ← atomic_fetch_add(seq, 1)          // s becomes odd; "writing"
-2. store io_surface_id, io_surface_gen   // plain stores, bracketed by (1) and (3)
-3. atomic_fetch_add(seq, 1, Release)     // even; "stable"
+2. release_fence()                       // keep (3) stores below (1)
+3. store io_surface_id, io_surface_gen   // plain stores, bracketed by (1) and (4)
+4. atomic_fetch_add(seq, 1, Release)     // even; "stable"
 ```
 
 **Reader (plugin):**
@@ -78,9 +79,10 @@ sample, must discard and retry.
 2. if s1 is odd       → skip
 3. if s1 == last_seen → skip (no change since last read)
 4. load io_surface_id, io_surface_gen, frame_id
-5. s2 ← atomic_load(seq, Acquire)
-6. if s2 != s1        → torn; retry next tick
-7. commit: native plugin re-blits if io_surface_gen changed
+5. acquire_fence()                       // keep (4) above (6)
+6. s2 ← atomic_load(seq, Relaxed)
+7. if s2 != s1        → torn; retry next tick
+8. commit: native plugin re-blits if io_surface_gen changed
            last_seen ← s1
 ```
 

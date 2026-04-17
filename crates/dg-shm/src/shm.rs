@@ -151,9 +151,12 @@ impl ShmWriter {
             seq.fetch_add(1, Ordering::AcqRel);
         }
 
+        // Why: AcqRel on the bump above is one-directional — it does not
+        // stop the data stores below from being reordered ahead of the
+        // seq→odd store on ARM. Close that side explicitly.
+        std::sync::atomic::fence(Ordering::Release);
+
         self.frame_id = self.frame_id.wrapping_add(1);
-        // Volatile writes prevent the compiler from reordering these
-        // stores past the atomic seq fences that bracket them.
         unsafe {
             ptr::write_volatile(base.add(OFF_FRAME_ID) as *mut u64, self.frame_id);
             ptr::write_volatile(base.add(OFF_IO_SURFACE_ID) as *mut u32, io_surface_id);
@@ -249,12 +252,15 @@ impl ShmReader {
             if s1 & 1 == 1 {
                 return None;
             }
-            // Volatile reads prevent the compiler from caching or
-            // reordering these loads across the atomic seq fences.
             let frame_id = ptr::read_volatile(base.add(OFF_FRAME_ID) as *const u64);
             let io_id = ptr::read_volatile(base.add(OFF_IO_SURFACE_ID) as *const u32);
             let io_gen = ptr::read_volatile(base.add(OFF_IO_SURFACE_GEN) as *const u32);
-            let s2 = seq.load(Ordering::Acquire);
+            // Why: Acquire on the s2 load below is one-directional — it
+            // does not stop the data loads above from being reordered
+            // past it on ARM. Close that side explicitly so s1 == s2
+            // genuinely implies the data loads didn't straddle a write.
+            std::sync::atomic::fence(Ordering::Acquire);
+            let s2 = seq.load(Ordering::Relaxed);
             if s2 != s1 {
                 return None;
             }
