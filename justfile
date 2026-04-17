@@ -48,6 +48,10 @@ sidecar-bundle:
         -d "Dragonglass Sidecar" \
         -v 0.1.0
 
+    # Mark as an agent app so it doesn't appear in the Dock or Cmd-Tab.
+    /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" \
+        target/bundle/dg-sidecar.app/Contents/Info.plist
+
     echo "Signing dg-sidecar.app..."
     codesign -f -s - --deep target/bundle/dg-sidecar.app >/dev/null
     echo "Built → crates/dg-sidecar/target/bundle/dg-sidecar.app"
