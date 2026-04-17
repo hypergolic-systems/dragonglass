@@ -2,6 +2,8 @@
 
 > ⚠️ **Early development.** This project is pre-release and under active, breaking churn. Only the **macOS / Apple Silicon** path is implemented today — Intel Macs, Linux, and Windows are not yet supported. Expect sharp edges.
 
+![Dragonglass navball composited over the KSP Flight scene](docs/images/navball.png)
+
 A pair of KSP mods for modern flight instrumentation:
 
 - **Dragonglass_Hud** — overlays a web-based flight UI on top of the KSP Flight scene, rendered in [CEF](https://bitbucket.org/chromiumembedded/cef/) (Chromium Embedded Framework) and composited via a zero-copy shared GPU texture.
