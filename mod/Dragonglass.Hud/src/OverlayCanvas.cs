@@ -38,6 +38,10 @@ namespace Dragonglass.Hud
             Height = height;
 
             _canvasGo = new GameObject("Dragonglass.Hud.Overlay");
+            // HUD addon persists across scenes; its canvas must too,
+            // otherwise Unity drops the overlay GameObject on every
+            // scene transition.
+            UnityEngine.Object.DontDestroyOnLoad(_canvasGo);
             Canvas canvas = _canvasGo.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = TopMostSortingOrder;

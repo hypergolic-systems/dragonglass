@@ -1,7 +1,15 @@
 // Dragonglass HUD plugin entry point.
 //
-// Runs in Flight for now. The sidecar is started by SidecarBootstrap
-// before this addon loads, so CEF is warmed up by the time we need it.
+// Runs from MainMenu onwards and persists across every scene via
+// DontDestroyOnLoad — the UI app (App.svelte) reads the live `game`
+// topic and decides per-scene what, if anything, to render. KSP sees
+// our overlay the entire session; the CEF-side Svelte code gates the
+// actual pixels. Keeping the overlay always-mounted avoids the
+// tear-down/rebuild churn of a scene-scoped addon and means the
+// shm/native handshake happens exactly once per session.
+//
+// The sidecar is started by SidecarBootstrap before this addon
+// loads, so CEF is warmed up by the time we first want to paint.
 //
 // Pixel pipeline: zero-copy only. The sidecar writes an IOSurfaceID
 // into the shm header; the plugin reads the ID each frame and calls
@@ -14,7 +22,7 @@ using UnityEngine;
 
 namespace Dragonglass.Hud
 {
-    [KSPAddon(KSPAddon.Startup.Flight, false)]
+    [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     public class DragonglassHudAddon : MonoBehaviour
     {
         private const string LogPrefix = "[Dragonglass/Hud] ";
@@ -55,6 +63,21 @@ namespace Dragonglass.Hud
         private float _nextShmRetryTime;
         private const float ShmRetryInterval = 0.5f;
 
+        private void Awake()
+        {
+            // Persist across scene transitions so the HUD is mounted
+            // from MainMenu through Flight, Space Center, VAB, etc.
+            // The UI app decides per-scene what to render.
+            DontDestroyOnLoad(gameObject);
+
+            // Re-hide the stock navball each time KSP enters Flight —
+            // KSP rebuilds the NavBall singleton on every Flight scene
+            // load, so our cached renderer references go stale. Also
+            // release state on exit to Flight so the next entry starts
+            // fresh.
+            GameEvents.onLevelWasLoadedGUIReady.Add(OnSceneReady);
+        }
+
         private void Start()
         {
             Debug.Log(LogPrefix + "addon loaded (" + HighLogic.LoadedScene + ")");
@@ -93,12 +116,27 @@ namespace Dragonglass.Hud
             // file exists and matches our dimensions.
             TryOpenReader(firstAttempt: true);
 
-            // Hide the stock navball sphere now that our overlay is up.
-            // Deferred one frame via an invoke so the NavBall singleton
-            // has a chance to finish its own Start() — the renderers may
-            // not exist yet in the first Flight-scene tick.
             _navBallHider = new NavBallHider();
-            Invoke(nameof(HideStockNavBall), 0.5f);
+        }
+
+        private void OnSceneReady(GameScenes scene)
+        {
+            if (_navBallHider == null) return;
+
+            if (scene == GameScenes.FLIGHT)
+            {
+                // Deferred a beat so the NavBall singleton finishes its
+                // own Start() — the renderers may not exist yet on the
+                // first Flight-scene tick.
+                Invoke(nameof(HideStockNavBall), 0.5f);
+            }
+            else
+            {
+                // Releasing clears cached (now-stale) refs so the next
+                // Flight entry starts fresh. Safe across scene unloads:
+                // Restore null-guards every cached reference.
+                _navBallHider.Restore();
+            }
         }
 
         private void HideStockNavBall()
@@ -334,6 +372,8 @@ namespace Dragonglass.Hud
 
         private void OnDestroy()
         {
+            GameEvents.onLevelWasLoadedGUIReady.Remove(OnSceneReady);
+
             if (_reader != null)
             {
                 _reader.Dispose();
