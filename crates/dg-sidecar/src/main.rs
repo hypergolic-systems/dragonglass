@@ -67,8 +67,14 @@ fn start_static_server(root_dir: &Path) -> Result<String> {
         .name("static-http".into())
         .spawn(move || {
             for request in server.incoming_requests() {
-                let url_path = request.url().to_string();
-                let url_path = url_path.trim_start_matches('/');
+                // request.url() is the request-line target — includes
+                // the query string. Truncate at the first '?' or '#'
+                // before doing filesystem lookup, otherwise a load like
+                // `/?ws=ws://...` tries to open a file literally named
+                // `?ws=ws://...` and 404s.
+                let url = request.url();
+                let path_only = &url[..url.find(|c| c == '?' || c == '#').unwrap_or(url.len())];
+                let url_path = path_only.trim_start_matches('/');
                 let file_path = if url_path.is_empty() {
                     root.join("index.html")
                 } else {
@@ -152,14 +158,19 @@ fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent) {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        anyhow::bail!("usage: dg-sidecar <path-or-url> <session-id>");
+        anyhow::bail!("usage: dg-sidecar <path-or-url> <session-id> [ws-url]");
     }
     let url_or_path = &args[1];
     let session_id = &args[2];
+    // Optional third arg: live-telemetry WS URL. The sidecar appends it
+    // to the loaded page as `?ws=<encoded>` so the UI auto-connects
+    // when launched by the KSP HUD. Browser-side iteration (`just
+    // ui-dev`) doesn't pass it and falls back to the simulated feed.
+    let ws_url = args.get(3);
 
     // If the argument is a local path, serve it over HTTP.
     // If it's already a URL, use it directly.
-    let boot_url = if url_or_path.starts_with("http://") || url_or_path.starts_with("https://") {
+    let base_url = if url_or_path.starts_with("http://") || url_or_path.starts_with("https://") {
         url_or_path.clone()
     } else {
         let path = Path::new(url_or_path);
@@ -169,6 +180,11 @@ fn main() -> Result<()> {
         let base = start_static_server(path)?;
         eprintln!("static file server → {base} (root: {})", path.display());
         base
+    };
+
+    let boot_url = match ws_url {
+        Some(ws) => format!("{base_url}?ws={}", urlencoding::encode(ws)),
+        None => base_url,
     };
     #[cfg(target_os = "macos")]
     let _library = {

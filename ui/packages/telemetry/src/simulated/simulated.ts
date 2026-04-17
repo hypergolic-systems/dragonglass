@@ -1,7 +1,16 @@
 import type { Topic, Ksp } from '../core/ksp';
-import { FlightTopic, AssemblyTopic } from '../core/topics';
+import { FlightTopic, GameTopic, AssemblyTopic } from '../core/topics';
+import type { GameData } from '../core/game-data';
 import { FlightSimulation } from './flight-sim';
 import { ASSEMBLY } from './assembly-fixture';
+
+// Simulated game state: pin to FLIGHT so `just ui-dev` lands on the
+// flight UI without needing KSP running.
+const SIM_GAME: GameData = {
+  scene: 'FLIGHT',
+  activeVesselId: 'sim-vessel',
+  timewarp: 1,
+};
 
 export class SimulatedKsp implements Ksp {
   private subs = new Map<string, Set<(frame: any) => void>>();
@@ -18,9 +27,12 @@ export class SimulatedKsp implements Ksp {
     }
     set.add(cb as (frame: any) => void);
 
-    // Fire immediately for assembly (latest value)
+    // Fire immediately for topics with a fixed simulated value so
+    // late-mounting components don't need to wait for a tick.
     if (topic.name === AssemblyTopic.name) {
       (cb as (frame: any) => void)(ASSEMBLY);
+    } else if (topic.name === GameTopic.name) {
+      (cb as (frame: any) => void)(SIM_GAME);
     }
 
     return () => {

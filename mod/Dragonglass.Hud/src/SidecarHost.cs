@@ -30,6 +30,11 @@ namespace Dragonglass.Hud
         private const string LogPrefix = "[Dragonglass/Host] ";
         private const int SidecarPort = 9877;
 
+        // Live telemetry WebSocket URL passed to the UI so it
+        // auto-attaches on load. Port matches TelemetryAddon's
+        // loopback bind in Dragonglass.Telemetry.
+        private const string TelemetryWsUrl = "ws://127.0.0.1:8787/";
+
         private static readonly object Lock = new object();
         private static Process _proc;
         private static bool _quitHookInstalled;
@@ -98,7 +103,7 @@ namespace Dragonglass.Hud
                     var psi = new ProcessStartInfo
                     {
                         FileName = binary,
-                        Arguments = bootUrl + " " + SessionId,
+                        Arguments = bootUrl + " " + SessionId + " " + TelemetryWsUrl,
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,

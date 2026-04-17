@@ -8,6 +8,12 @@
 
   const s = useFlightData();
 
+  // Derived speeds: surface-relative speed (shown by default on the
+  // tape) and orbital speed (available for a future SURFACE/ORBIT
+  // toggle). Reading fields off the reactive `s` proxy inside $derived
+  // makes the tape re-render only when the vector actually changes.
+  const surfaceSpeed = $derived(s.surfaceVelocity.length());
+
   let clickCount = $state(0);
 </script>
 
@@ -25,14 +31,14 @@
     <Navball orientation={s.orientation} />
     <CurvedTape
       side="left"
-      value={s.surfaceVelocity}
+      value={surfaceSpeed}
       modeLabel="SURFACE"
       scale={SPEED_SCALE}
       formatReadout={formatSurfaceSpeed}
     />
     <CurvedTape
       side="right"
-      value={s.altitude}
+      value={s.altitudeAsl}
       modeLabel="ALT"
       scale={ALTITUDE_SCALE}
       formatReadout={formatAltitude}

@@ -1,4 +1,6 @@
 export { type Topic, type Ksp, topic } from './ksp';
+export { type ClockData } from './clock-data';
+export { type GameData } from './game-data';
 export { type FlightData } from './flight-data';
 export {
   type ResourceId,
@@ -11,4 +13,4 @@ export {
   PROPELLANT_DENSITY,
   RESOURCE_DISPLAY_NAME,
 } from './assembly';
-export { FlightTopic, AssemblyTopic } from './topics';
+export { ClockTopic, GameTopic, FlightTopic, AssemblyTopic } from './topics';

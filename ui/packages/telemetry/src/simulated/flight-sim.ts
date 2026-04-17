@@ -1,5 +1,6 @@
 // Pure TS — no Svelte runes. Mutates a pre-allocated FlightData
-// and Quaternion each frame to avoid GC pressure at 60fps.
+// (plus its nested Quaternion / Vector3) each frame to avoid GC
+// pressure at 60fps.
 
 import { Quaternion, Vector3 } from 'three';
 import type { FlightData } from '../core/flight-data';
@@ -17,27 +18,35 @@ const LAUNCH_T2 =
   LAUNCH_G;
 const LAUNCH_CYCLE = LAUNCH_T1 + LAUNCH_T2;
 
-function simulateLaunch(t: number): { altitude: number; speed: number } {
+function simulateLaunch(t: number): {
+  altitude: number;
+  speed: number;
+  verticalSpeed: number;
+} {
   const tCycle = ((t % LAUNCH_CYCLE) + LAUNCH_CYCLE) % LAUNCH_CYCLE;
   if (tCycle < LAUNCH_T1) {
     return {
       altitude: 0.5 * LAUNCH_A_BOOST * tCycle * tCycle,
       speed: LAUNCH_A_BOOST * tCycle,
+      verticalSpeed: LAUNCH_A_BOOST * tCycle,
     };
   }
   const tc = tCycle - LAUNCH_T1;
   const h = LAUNCH_H_CUT + LAUNCH_V_CUT * tc - 0.5 * LAUNCH_G * tc * tc;
   const v = LAUNCH_V_CUT - LAUNCH_G * tc;
-  return { altitude: Math.max(0, h), speed: Math.abs(v) };
+  return {
+    altitude: Math.max(0, h),
+    speed: Math.abs(v),
+    verticalSpeed: v,
+  };
 }
 
 /**
  * Owns the simulation state and advances it each tick.
  * Framework-agnostic — call `tick(dt)` from any loop (rAF, setInterval, etc.)
- * and read `data` / `orientation` for the latest frame.
+ * and read `data` for the latest frame.
  */
 export class FlightSimulation {
-  readonly orientation: Quaternion;
   readonly data: FlightData;
 
   readonly keys = new Set<string>();
@@ -49,16 +58,22 @@ export class FlightSimulation {
   private readonly axis = new Vector3();
 
   constructor() {
-    this.orientation = new Quaternion();
     this.data = {
-      altitude: 0,
-      surfaceVelocity: 0,
-      orientation: this.orientation,
+      vesselId: 'sim-vessel',
+      altitudeAsl: 0,
+      altitudeRadar: 0,
+      surfaceVelocity: new Vector3(),
+      orbitalVelocity: new Vector3(),
+      throttle: 1,
+      sas: false,
+      rcs: false,
+      orientation: new Quaternion(),
+      angularVelocity: new Vector3(),
     };
   }
 
   tick(dt: number): void {
-    const { keys, angVel, orientation, dq, axis, data } = this;
+    const { keys, angVel, dq, axis, data } = this;
 
     if (this.resetPending) {
       angVel.x = 0;
@@ -78,12 +93,21 @@ export class FlightSimulation {
     if (omega > 1e-9) {
       axis.set(angVel.x / omega, angVel.y / omega, angVel.z / omega);
       dq.setFromAxisAngle(axis, omega * dt);
-      orientation.multiply(dq).normalize();
+      data.orientation.multiply(dq).normalize();
     }
+
+    data.angularVelocity.set(angVel.x, angVel.y, angVel.z);
 
     this.t += dt;
     const launch = simulateLaunch(this.t);
-    data.altitude = launch.altitude;
-    data.surfaceVelocity = launch.speed;
+    data.altitudeAsl = launch.altitude;
+    data.altitudeRadar = launch.altitude;
+
+    // Sim vessel ascends straight up with a bit of eastward drift so
+    // orbital + surface velocities read plausibly. Both vectors in the
+    // surface frame: +X = east, +Y = up, +Z = north.
+    const eastwardDrift = Math.min(launch.speed * 0.15, 50);
+    data.surfaceVelocity.set(eastwardDrift, launch.verticalSpeed, 0);
+    data.orbitalVelocity.set(eastwardDrift + 175, launch.verticalSpeed, 0);
   }
 }
