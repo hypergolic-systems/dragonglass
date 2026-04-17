@@ -70,3 +70,47 @@ jobs:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v2
       - run: just native-test
+
+  sidecar-darwin:
+    name: Sidecar (dg-sidecar + CEF bundle)
+    runs-on: macos-14
+    env:
+      # Keep CEF_TARBALL in sync with the `cef` crate version in
+      # crates/dg-sidecar/Cargo.toml. The crate version does NOT match the
+      # CEF binary version — after bumping the crate, check
+      # ~/.local/share/cef/archive.json on a dev box for the new tarball name.
+      CEF_TARBALL: cef_binary_146.0.10+g8219561+chromium-146.0.7680.179_macosarm64_minimal.tar.bz2
+      CEF_PATH: ${{ github.workspace }}/.cef
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v2
+
+      - name: Cache CEF binary distribution
+        id: cef-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CEF_PATH }}
+          key: cef-${{ env.CEF_TARBALL }}
+
+      - name: Download CEF
+        if: steps.cef-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$CEF_PATH"
+          curl -sSLo /tmp/cef.tar.bz2 "https://cef-builds.spotifycdn.com/$CEF_TARBALL"
+          tar -xjf /tmp/cef.tar.bz2 -C "$CEF_PATH" --strip-components=1
+          rm /tmp/cef.tar.bz2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install bundle-cef-app
+        uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: cef@146.5.0
+          features: build-util
+          bin: bundle-cef-app
+
+      - run: cargo check -p dg-sidecar
+      - run: just sidecar-bundle
