@@ -59,7 +59,14 @@ namespace Dragonglass.Hud
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
 
-            _texture = new Texture2D(width, height, TextureFormat.BGRA32, mipChain: false, linear: false);
+            // RGBA32, not BGRA32 — the zero-copy blit path in DgHudNative
+            // wraps the incoming IOSurface with CGLTexImageIOSurface2D's
+            // internal format = GL_RGBA, so the source texture's canonical
+            // byte order is RGBA. Unity's glBlitFramebuffer then does a
+            // byte-for-byte copy to this destination; declaring this
+            // Texture2D as BGRA32 causes Unity to render the bytes as if
+            // they were BGRA, swapping R and B on display.
+            _texture = new Texture2D(width, height, TextureFormat.RGBA32, mipChain: false, linear: false);
             _texture.filterMode = FilterMode.Point;
             _texture.wrapMode = TextureWrapMode.Clamp;
 
