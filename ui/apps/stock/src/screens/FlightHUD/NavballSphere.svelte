@@ -1,10 +1,12 @@
 <script lang="ts">
   import { T, useTask } from '@threlte/core';
   import * as THREE from 'three';
+  import { useSmoothedOrientation } from '@dragonglass/telemetry/svelte';
   import { drawNavballTexture } from './navball-textures';
   import OrbitalMarkers from './OrbitalMarkers.svelte';
 
-  let { orientation }: { orientation: THREE.Quaternion } = $props();
+  const predictor = useSmoothedOrientation();
+  const smoothed = new THREE.Quaternion();
 
   let groupRef: THREE.Group | undefined = $state();
 
@@ -21,7 +23,8 @@
 
   useTask(() => {
     if (!groupRef) return;
-    groupRef.quaternion.copy(orientation).invert();
+    predictor.sample(performance.now(), smoothed);
+    groupRef.quaternion.copy(smoothed).invert();
   });
 </script>
 

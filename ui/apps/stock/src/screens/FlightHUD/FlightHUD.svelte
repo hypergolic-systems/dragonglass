@@ -28,7 +28,7 @@
   </button>
 
   <div class="navslot navslot--bottom-left">
-    <Navball orientation={s.orientation} />
+    <Navball />
     <CurvedTape
       side="left"
       value={surfaceSpeed}

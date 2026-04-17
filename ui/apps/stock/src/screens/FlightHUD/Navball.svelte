@@ -1,9 +1,6 @@
 <script lang="ts">
   import { Canvas, T } from '@threlte/core';
-  import type { Quaternion } from 'three';
   import NavballSphere from './NavballSphere.svelte';
-
-  let { orientation }: { orientation: Quaternion } = $props();
 </script>
 
 <div class="navball">
@@ -20,7 +17,7 @@
       <T.DirectionalLight position={[3, 2.5, 4]} intensity={0.8} color="#ffffff" />
       <T.DirectionalLight position={[-3, -1, 2]} intensity={0.3} color="#6ea8d0" />
       <T.DirectionalLight position={[0, -3, 1]} intensity={0.2} color="#d28560" />
-      <NavballSphere {orientation} />
+      <NavballSphere />
     </Canvas>
 
     <!-- Center boresight reticle -->
