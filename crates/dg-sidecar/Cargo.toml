@@ -1,0 +1,39 @@
+[package]
+name = "dg-sidecar"
+description = "CEF sidecar: hosts the browser and publishes rendered frames via IOSurface"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dg-sidecar"
+path = "src/main.rs"
+
+[[bin]]
+name = "dg-sidecar-helper"
+path = "src/bin/helper.rs"
+
+[package.metadata.cef.bundle]
+helper_name = "dg-sidecar-helper"
+
+[dependencies]
+dg-shm = { path = "../dg-shm" }
+dg-gpu = { path = "../dg-gpu" }
+anyhow.workspace = true
+cef = { version = "146.5.0", default-features = false, features = ["build-util", "accelerated_osr"] }
+tiny_http = "0.12"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false }
+objc2-io-surface = { version = "0.3", features = ["IOSurfaceRef"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "NSApplication",
+    "NSEvent",
+    "NSResponder",
+    "NSUserInterfaceValidation",
+    "NSView",
+    "NSWindow",
+] }

@@ -1,0 +1,74 @@
+@import url('https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@300;400;500;600;700&family=Unica+One&display=swap');
+
+:root {
+  --font-mono: 'Azeret Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-display: 'Unica One', 'Azeret Mono', sans-serif;
+
+  --bg: #040710;
+  --bg-elev: #080c16;
+  --bg-panel: rgba(8, 12, 22, 0.82);
+  --bg-panel-solid: #080c16;
+  --bg-panel-strong: rgba(4, 7, 16, 0.94);
+
+  --line: #1a2335;
+  --line-bright: #2a3a55;
+  --line-accent: #2e6a55;
+
+  --fg: #e2e8f2;
+  --fg-dim: #6b7a93;
+  --fg-mute: #3a4760;
+
+  --accent: #7ef5b8;
+  --accent-soft: #bdffdb;
+  --accent-glow: rgba(126, 245, 184, 0.35);
+  --accent-dim: #3b8a66;
+
+  --warn: #f0b429;
+  --warn-glow: rgba(240, 180, 41, 0.35);
+  --alert: #ff5252;
+  --info: #5ab0ff;
+
+  --sky-top: #0a1626;
+  --sky-mid: #112238;
+  --horizon: #3a5a78;
+  --ground-top: #241a10;
+  --ground-bottom: #05030a;
+
+  color-scheme: dark;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-feature-settings: 'tnum' 1, 'ss01' 1, 'zero' 1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: transparent;
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  letter-spacing: 0.01em;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+}

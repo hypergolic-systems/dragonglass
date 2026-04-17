@@ -1,0 +1,11 @@
+[package]
+name = "dg-shm"
+description = "Header-only shared-memory seqlock for IOSurface ID signaling between sidecar and KSP plugin"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+memmap2.workspace = true

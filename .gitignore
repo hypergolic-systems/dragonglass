@@ -1,0 +1,41 @@
+# Rust
+target/
+**/*.rs.bk
+
+# .NET / dotnet
+mod/**/build/
+mod/**/bin/
+mod/**/obj/
+
+# Native plugin build artifacts
+mod/native/*/out/
+
+# Node
+node_modules/
+ui/**/dist/
+
+# Vite
+*.local
+.vite
+
+# TypeScript
+*.tsbuildinfo
+
+# macOS
+.DS_Store
+
+# Claude
+.claude/
+
+# Release staging
+dist/
+release/
+
+# Generated notices (cargo-about output)
+THIRD_PARTY_NOTICES_RUST
+
+# Shared memory backing files
+*.shm
+
+# Logs
+*.log

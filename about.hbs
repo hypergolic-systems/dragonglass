@@ -1,0 +1,18 @@
+THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
+
+This file lists the licenses of third-party software included in the
+Dragonglass sidecar binary (dg-sidecar). Dragonglass itself is distributed
+under the MIT license — see LICENSE.
+
+{{#each licenses}}
+================================================================================
+
+{{name}}
+
+Used by:
+{{#each used_by}}
+  - {{crate.name}} {{crate.version}}
+{{/each}}
+
+{{{text}}}
+{{/each}}

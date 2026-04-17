@@ -1,0 +1,274 @@
+//! Main-process entry point for the Dragonglass CEF sidecar.
+//!
+//! Responsibilities, in order:
+//! 1. Load the CEF framework from our app bundle.
+//! 2. Dispatch to `execute_process` — if we were launched as a CEF
+//!    subprocess (renderer/gpu/utility) it handles the run and we exit.
+//!    In normal operation the helper binary catches those; this call is
+//!    defensive.
+//! 3. Set up a CEF-compatible NSApplication subclass on macOS.
+//! 4. Open the shared-memory file and create the `ShmWriter` +
+//!    `InputRingReader`.
+//! 5. Build the `App`/`Client`/`RenderHandler`/`DisplayHandler` tree,
+//!    giving the render handler exclusive ownership of the writer.
+//! 6. Call `cef::initialize` and run the external message pump loop,
+//!    draining the input ring into `BrowserHost::send_mouse_*` each
+//!    tick.
+
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use anyhow::Result;
+use cef::{args::Args, *};
+
+use dg_sidecar::app::{
+    BrowserSlot, KspAppBuilder, KspAppInner, KspBrowserProcessHandlerBuilder,
+    KspBrowserProcessHandlerInner, KspClientBuilder, KspRenderHandlerBuilder,
+    KspRenderHandlerInner, VIEWPORT_HEIGHT, VIEWPORT_WIDTH,
+};
+use dg_shm::{shm_path_for_session, InputEvent, ShmWriter};
+
+/// Spawn a background thread serving static files from `root_dir`.
+/// Returns the base URL (e.g. `http://127.0.0.1:12345`).
+fn start_static_server(root_dir: &Path) -> Result<String> {
+    let server = tiny_http::Server::http("127.0.0.1:0")
+        .map_err(|e| anyhow::anyhow!("failed to bind static file server: {e}"))?;
+    let port = server.server_addr().to_ip().unwrap().port();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let root = root_dir.to_path_buf();
+
+    std::thread::Builder::new()
+        .name("static-http".into())
+        .spawn(move || {
+            for request in server.incoming_requests() {
+                let url_path = request.url().to_string();
+                let url_path = url_path.trim_start_matches('/');
+                let file_path = if url_path.is_empty() {
+                    root.join("index.html")
+                } else {
+                    root.join(url_path)
+                };
+
+                // Prevent path traversal
+                if !file_path.starts_with(&root) {
+                    let _ = request.respond(tiny_http::Response::from_string("forbidden").with_status_code(403));
+                    continue;
+                }
+
+                match std::fs::File::open(&file_path) {
+                    Ok(file) => {
+                        let content_type = match file_path.extension().and_then(|e| e.to_str()) {
+                            Some("html") => "text/html; charset=utf-8",
+                            Some("js") => "application/javascript",
+                            Some("css") => "text/css",
+                            Some("json") => "application/json",
+                            Some("png") => "image/png",
+                            Some("svg") => "image/svg+xml",
+                            Some("woff2") => "font/woff2",
+                            Some("woff") => "font/woff",
+                            _ => "application/octet-stream",
+                        };
+                        let header = tiny_http::Header::from_bytes(
+                            b"Content-Type", content_type.as_bytes()
+                        ).unwrap();
+                        let response = tiny_http::Response::from_file(file)
+                            .with_header(header);
+                        let _ = request.respond(response);
+                    }
+                    Err(_) => {
+                        let _ = request.respond(
+                            tiny_http::Response::from_string("not found")
+                                .with_status_code(404),
+                        );
+                    }
+                }
+            }
+        })?;
+
+    Ok(base_url)
+}
+
+/// Map an `InputEvent` from the SHM ring buffer into a CEF
+/// `BrowserHost::send_mouse_*` call.
+fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent) {
+    use dg_shm::layout::{
+        INPUT_BTN_LEFT, INPUT_BTN_MIDDLE, INPUT_BTN_RIGHT, INPUT_MOUSE_DOWN, INPUT_MOUSE_MOVE,
+        INPUT_MOUSE_UP, INPUT_MOUSE_WHEEL,
+    };
+
+    let mouse_event = cef::MouseEvent {
+        x: evt.x,
+        y: evt.y,
+        modifiers: 0,
+    };
+
+    match evt.kind {
+        INPUT_MOUSE_MOVE => {
+            host.send_mouse_move_event(Some(&mouse_event), 0);
+        }
+        INPUT_MOUSE_DOWN | INPUT_MOUSE_UP => {
+            let btn = match evt.button {
+                INPUT_BTN_LEFT => cef::MouseButtonType::LEFT,
+                INPUT_BTN_RIGHT => cef::MouseButtonType::RIGHT,
+                INPUT_BTN_MIDDLE => cef::MouseButtonType::MIDDLE,
+                _ => return,
+            };
+            let mouse_up = if evt.kind == INPUT_MOUSE_UP { 1 } else { 0 };
+            host.send_mouse_click_event(Some(&mouse_event), btn, mouse_up, 1);
+        }
+        INPUT_MOUSE_WHEEL => {
+            host.send_mouse_wheel_event(Some(&mouse_event), 0, evt.extra);
+        }
+        _ => {}
+    }
+}
+
+fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 3 {
+        anyhow::bail!("usage: dg-sidecar <path-or-url> <session-id>");
+    }
+    let url_or_path = &args[1];
+    let session_id = &args[2];
+
+    // If the argument is a local path, serve it over HTTP.
+    // If it's already a URL, use it directly.
+    let boot_url = if url_or_path.starts_with("http://") || url_or_path.starts_with("https://") {
+        url_or_path.clone()
+    } else {
+        let path = Path::new(url_or_path);
+        if !path.is_dir() {
+            anyhow::bail!("UI path is not a directory: {}", path.display());
+        }
+        let base = start_static_server(path)?;
+        eprintln!("static file server → {base} (root: {})", path.display());
+        base
+    };
+    #[cfg(target_os = "macos")]
+    let _library = {
+        let loader = library_loader::LibraryLoader::new(&std::env::current_exe()?, false);
+        if !loader.load() {
+            anyhow::bail!("failed to load CEF framework (main process)");
+        }
+        loader
+    };
+
+    let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
+
+    let args = Args::new();
+    let cmd_line = args
+        .as_cmd_line()
+        .ok_or_else(|| anyhow::anyhow!("failed to parse command line"))?;
+
+    // Defensive subprocess dispatch.
+    let type_switch = CefString::from("type");
+    let is_browser_process = cmd_line.has_switch(Some(&type_switch)) != 1;
+    let ret = execute_process(
+        Some(args.as_main_args()),
+        None::<&mut App>,
+        std::ptr::null_mut(),
+    );
+    if !is_browser_process {
+        if ret < 0 {
+            anyhow::bail!("execute_process reported failure in subprocess");
+        }
+        return Ok(());
+    }
+    debug_assert_eq!(ret, -1);
+
+    eprintln!("main process starting");
+
+    #[cfg(target_os = "macos")]
+    dg_sidecar::mac::setup_application();
+
+    // --- Shared memory (4096 bytes: 128-byte header + input ring) ---
+    let shm_path = shm_path_for_session(session_id);
+    eprintln!(
+        "creating shm {} ({}x{} + input ring)",
+        shm_path.display(),
+        VIEWPORT_WIDTH,
+        VIEWPORT_HEIGHT
+    );
+    let writer = ShmWriter::create(&shm_path, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+        .map_err(|e| anyhow::anyhow!("ShmWriter::create failed: {e}"))?;
+    // Input ring reader shares the same mmap as the writer.
+    let input_ring = unsafe { dg_shm::InputRingReader::new(writer.mmap_base()) };
+
+    eprintln!("loading {}", boot_url);
+
+    // --- Browser slot: populated by on_context_initialized ---
+    let browser_slot: BrowserSlot = Arc::new(Mutex::new(None));
+
+    // --- Build CEF tree ---
+    let mut render_inner = KspRenderHandlerInner::new(writer);
+
+    #[cfg(target_os = "macos")]
+    {
+        match dg_gpu::IOSurfaceBridge::create(VIEWPORT_WIDTH, VIEWPORT_HEIGHT) {
+            Ok(bridge) => render_inner.set_io_surface_bridge(bridge),
+            Err(e) => {
+                eprintln!("canvas bridge init failed: {} — zero-copy disabled", e);
+            }
+        }
+    }
+
+    let render_handler = KspRenderHandlerBuilder::build(render_inner);
+    let client = KspClientBuilder::build(render_handler);
+    let process_inner =
+        KspBrowserProcessHandlerInner::new(client, boot_url, browser_slot.clone());
+    let process_handler = KspBrowserProcessHandlerBuilder::build(process_inner);
+    let app_inner = KspAppInner::new(process_handler);
+    let mut app = KspAppBuilder::build(app_inner);
+
+    // Session-scoped CEF cache so multiple sidecar instances don't
+    // fight over the singleton lock.
+    let cache_dir = std::env::temp_dir().join(format!("dragonglass-cef-{session_id}"));
+    std::fs::create_dir_all(&cache_dir)?;
+    let cache_path = CefString::from(cache_dir.to_str().unwrap());
+
+    let settings = Settings {
+        no_sandbox: 1,
+        windowless_rendering_enabled: 1,
+        external_message_pump: 1,
+        root_cache_path: cache_path,
+        ..Default::default()
+    };
+
+    let initialized = initialize(
+        Some(args.as_main_args()),
+        Some(&settings),
+        Some(&mut app),
+        std::ptr::null_mut(),
+    );
+    if initialized != 1 {
+        anyhow::bail!("cef::initialize failed");
+    }
+
+    eprintln!("entering CEF message pump loop");
+
+    // Manual pump loop. Sleep interval is 8 ms — balances latency
+    // against GPU contention with Unity's Metal work.
+    loop {
+        do_message_loop_work();
+
+        // Drain input events from the SHM ring buffer and inject
+        // them into CEF via BrowserHost.
+        if let Ok(slot) = browser_slot.lock() {
+            if let Some(ref browser) = *slot {
+                if let Some(host) = browser.host() {
+                    input_ring.drain(|evt| {
+                        inject_input_event(&host, evt);
+                    });
+                }
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(8));
+    }
+
+    #[allow(unreachable_code)]
+    {
+        shutdown();
+        Ok(())
+    }
+}

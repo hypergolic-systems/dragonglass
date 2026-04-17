@@ -1,0 +1,214 @@
+/* =========================================================
+   Flight HUD — analog mission control
+   ========================================================= */
+
+.hud {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: transparent;
+}
+
+.hud--navball-only::before,
+.hud--navball-only::after {
+  display: none;
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* =========================================================
+   Navball slot — positions the ball + tapes cluster
+   ========================================================= */
+
+.navslot {
+  position: absolute;
+  z-index: 15;
+  animation: panelIn 0.8s cubic-bezier(0.2, 0.8, 0.25, 1) backwards;
+  animation-delay: 0.34s;
+  --nav-inset: 72px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.navslot--bottom-left {
+  bottom: var(--nav-inset);
+  left: var(--nav-inset);
+}
+
+/* ---------- Curved tape instrument ---------- */
+/* SVG overlay that shares the navball's bounding box. Absolute-positioned
+   inside the navslot and uses overflow: visible so the cursor readout can
+   hang off to the left of the ball. */
+
+.curved-tape {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 488px;
+  height: 488px;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* Opaque annular-wedge backing — hugs the sphere's left edge and gives
+   the tape a stable surface to read against any scene background. */
+.curved-tape__panel {
+  fill: var(--bg-panel-strong);
+  stroke: var(--line-accent);
+  stroke-width: 0.9;
+}
+
+.curved-tape__bar {
+  stroke: var(--fg-mute);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+}
+
+.curved-tape__bar--major {
+  stroke: var(--fg-dim);
+  stroke-width: 2;
+}
+
+.curved-tape__label {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  fill: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.curved-tape__mode rect {
+  fill: rgba(126, 245, 184, 0.08);
+  stroke: var(--accent);
+  stroke-width: 0.9;
+}
+
+.curved-tape__mode text {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  fill: var(--accent);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.curved-tape__readout-bg {
+  fill: var(--bg-panel-strong);
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  filter: drop-shadow(0 0 12px rgba(126, 245, 184, 0.3));
+}
+
+.curved-tape__readout-num {
+  font-family: var(--font-display);
+  font-size: 13px;
+  fill: var(--accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  text-shadow: 0 0 10px var(--accent-glow);
+}
+
+.curved-tape__readout-unit {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  fill: var(--fg-dim);
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
+}
+
+/* Clean-ball mode: drop the phosphor glow around the reticle so the only
+   overlay is the crisp center boresight. */
+.navslot .navball__reticle {
+  filter: none;
+}
+
+/* =========================================================
+   Navball internals
+   ========================================================= */
+
+.navball {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.navball__stage {
+  position: relative;
+  width: 488px;
+  height: 488px;
+  display: grid;
+  place-items: center;
+}
+
+.navball__reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 455px;
+  height: 455px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  filter: drop-shadow(0 0 18px rgba(126, 245, 184, 0.22));
+}
+
+/* =========================================================
+   Temporary: input test button (remove after verifying SHM input)
+   ========================================================= */
+
+.input-test {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 14px 32px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-dim);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-shadow: 0 0 8px var(--accent-glow);
+}
+
+.input-test:hover {
+  background: rgba(126, 245, 184, 0.18);
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(126, 245, 184, 0.25), inset 0 0 20px rgba(126, 245, 184, 0.08);
+  transform: translateX(-50%) scale(1.04);
+}
+
+.input-test:active {
+  transform: translateX(-50%) scale(0.97);
+}
+
+.input-test--clicked {
+  color: var(--warn);
+  border-color: var(--warn);
+  text-shadow: 0 0 10px var(--warn-glow);
+}
+
+.input-test--clicked:hover {
+  background: rgba(255, 170, 50, 0.18);
+  box-shadow: 0 0 20px rgba(255, 170, 50, 0.25), inset 0 0 20px rgba(255, 170, 50, 0.08);
+}

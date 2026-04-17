@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/instruments" },
+    { "path": "./apps/stock" },
+    { "path": "./apps/workbench" }
+  ]
+}

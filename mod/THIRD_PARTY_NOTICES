@@ -1,0 +1,5 @@
+THIRD-PARTY SOFTWARE NOTICES — .NET DEPENDENCIES
+
+The Dragonglass C# plugin has no third-party .NET runtime dependencies.
+All functionality uses only the KSP/Unity/Mono assemblies bundled with
+the game.

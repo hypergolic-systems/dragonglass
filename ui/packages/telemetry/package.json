@@ -1,0 +1,21 @@
+{
+  "name": "@dragonglass/telemetry",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./core": "./src/core/index.ts",
+    "./svelte": "./src/svelte/index.ts",
+    "./simulated": "./src/simulated/index.ts"
+  },
+  "dependencies": {
+    "three": "^0.160.1"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@types/three": "^0.160.0",
+    "svelte": "^5.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0"
+  }
+}
