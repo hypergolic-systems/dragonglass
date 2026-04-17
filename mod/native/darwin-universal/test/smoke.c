@@ -22,8 +22,15 @@ int main(int argc, char** argv) {
         "UnityPluginLoad",
         "UnityPluginUnload",
         "DgHudNative_IsReady",
-        "DgHudNative_PollSurface",
-        "DgHudNative_ReleaseTexture",
+        "DgHudNative_GetBackend",
+        "DgHudNative_SetBackend",
+        "DgHudNative_SetTargetTexture",
+        "DgHudNative_UpdatePending",
+        "DgHudNative_GetRenderEventFunc",
+        "DgHudNative_GetStats",
+        "DgHudNative_SamplePixel",
+        "DgHudNative_GetLastError",
+        "DgHudNative_GetErrorBreakdown",
     };
     int failed = 0;
     for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
