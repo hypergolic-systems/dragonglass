@@ -24,6 +24,7 @@ namespace Dragonglass.Hud
         private GameObject _imageGo;
         private RawImage _rawImage;
         private Texture2D _texture;
+        private HudRaycastFilter _raycastFilter;
 
         public int Width { get; }
         public int Height { get; }
@@ -59,15 +60,17 @@ namespace Dragonglass.Hud
 
             _rawImage = _imageGo.AddComponent<RawImage>();
             _rawImage.texture = _texture;
-            // Don't hit-test the overlay: a full-screen RawImage with
-            // raycastTarget=true silently swallows every click/drag that
-            // Unity's EventSystem would otherwise route to the flight
-            // camera controller, making right-click-drag (camera look)
-            // appear dead on any frame where the cursor sits inside the
-            // HUD. Mouse events we *want* to forward to CEF are sampled
-            // directly from `Input.mousePosition` and shipped via the
-            // SHM input ring, not through UGUI.
-            _rawImage.raycastTarget = false;
+            // Hit-test the overlay, but delegate per-pixel opacity to
+            // `HudRaycastFilter`: opaque pixels block Unity's EventSystem
+            // (so a click on a HUD button doesn't also toggle the KSP
+            // widget behind us), transparent pixels pass the raycast
+            // through (so camera drag and stock UI stay usable wherever
+            // the HUD isn't painting). Mouse events we forward to CEF
+            // are still sampled directly from `Input.mousePosition` and
+            // shipped via the SHM input ring, not through UGUI.
+            _rawImage.raycastTarget = true;
+            _raycastFilter = _imageGo.AddComponent<HudRaycastFilter>();
+            _raycastFilter.Configure(width, height);
             // Vertical flip via UV remap. CEF's OnPaint delivers BGRA
             // bytes in top-down row order (Y=0 at top), but Unity's
             // Texture2D memory layout is bottom-up (Y=0 at bottom). Left
@@ -76,6 +79,17 @@ namespace Dragonglass.Hud
             // sampled from V=1 downward inverts the Y axis at the
             // shader with zero data copy.
             _rawImage.uvRect = new Rect(0f, 1f, 1f, -1f);
+        }
+
+        /// <summary>
+        /// Publish the current canvas IOSurface ID to the raycast
+        /// filter so it can sample alpha at the cursor. Called from
+        /// the addon each frame alongside the zero-copy rebind.
+        /// </summary>
+        public void SetRaycastSurface(uint ioSurfaceId)
+        {
+            if (_raycastFilter != null)
+                _raycastFilter.SetSurface(ioSurfaceId);
         }
 
         /// <summary>
@@ -109,6 +123,7 @@ namespace Dragonglass.Hud
         public void Dispose()
         {
             _rawImage = null;
+            _raycastFilter = null;
             if (_imageGo != null)
             {
                 UnityEngine.Object.Destroy(_imageGo);

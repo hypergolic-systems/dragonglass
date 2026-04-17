@@ -189,6 +189,7 @@ namespace Dragonglass.Hud
 
                         _currentIoSurfaceId = snap.IoSurfaceId;
                         _currentIoSurfaceGen = snap.IoSurfaceGen;
+                        _overlay.SetRaycastSurface(snap.IoSurfaceId);
 
                         if (snap.FrameId != _lastAppliedFrame)
                         {
