@@ -6,14 +6,14 @@ export type MarkerKind =
   | 'normal'
   | 'anti-normal';
 
-export const MARKER_SPECS: { kind: MarkerKind; dir: [number, number, number] }[] = [
-  { kind: 'prograde',    dir: [0, 0, 1] },
-  { kind: 'retrograde',  dir: [0, 0, -1] },
-  { kind: 'radial-out',  dir: [0, 1, 0] },
-  { kind: 'radial-in',   dir: [0, -1, 0] },
-  { kind: 'normal',      dir: [-1, 0, 0] },
-  { kind: 'anti-normal', dir: [1, 0, 0] },
-];
+export const MARKER_KINDS: readonly MarkerKind[] = [
+  'prograde',
+  'retrograde',
+  'radial-out',
+  'radial-in',
+  'normal',
+  'anti-normal',
+] as const;
 
 export const MARKER_COLOR: Record<MarkerKind, string> = {
   prograde:      '#ffd95a',
@@ -33,7 +33,9 @@ export function drawNavballTexture(): HTMLCanvasElement {
   const ctx = canvas.getContext('2d')!;
   const eq = H / 2;
 
-  // Sky hemisphere
+  // Sky at canvas top, ground at canvas bottom. The three.js default
+  // flipY=true maps canvas y=0 to UV.y=1 → sphere +Y pole, so sky
+  // lands at the zenith.
   const sky = ctx.createLinearGradient(0, 0, 0, eq);
   sky.addColorStop(0, '#081a30');
   sky.addColorStop(0.55, '#143758');
@@ -41,7 +43,6 @@ export function drawNavballTexture(): HTMLCanvasElement {
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, eq);
 
-  // Ground hemisphere
   const ground = ctx.createLinearGradient(0, eq, 0, H);
   ground.addColorStop(0, '#b46332');
   ground.addColorStop(0.5, '#6a331a');
@@ -96,11 +97,19 @@ export function drawNavballTexture(): HTMLCanvasElement {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = '700 64px "Azeret Mono", ui-monospace, monospace';
+  // On a three.js SphereGeometry, sphere-local +Z (U=0.25 at the
+  // equator) is what ends up at the crosshair when the vessel faces
+  // north in the surface frame — so the "N" label lives at U=0.25,
+  // not U=0. Shifting all four cardinals by -0.25 in U gives:
+  //   U=0    → W     (was N)
+  //   U=0.25 → N     (was E)
+  //   U=0.5  → E     (was S)
+  //   U=0.75 → S     (was W)
   const cardinals: { u: number; label: string }[] = [
-    { u: 0, label: 'N' },
-    { u: 0.25, label: 'E' },
-    { u: 0.5, label: 'S' },
-    { u: 0.75, label: 'W' },
+    { u: 0, label: 'W' },
+    { u: 0.25, label: 'N' },
+    { u: 0.5, label: 'E' },
+    { u: 0.75, label: 'S' },
   ];
   cardinals.forEach(({ u, label }) => {
     const x = u * W;
@@ -137,7 +146,7 @@ export function drawNavballTexture(): HTMLCanvasElement {
     });
   }
 
-  // Pole markers
+  // Pole markers.
   ctx.font = '700 32px "Azeret Mono", ui-monospace, monospace';
   ctx.fillStyle = 'rgba(232, 244, 255, 0.75)';
   ctx.fillText('ZENITH', W / 2, 48);

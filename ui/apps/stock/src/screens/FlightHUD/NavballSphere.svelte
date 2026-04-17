@@ -13,6 +13,9 @@
   texture.anisotropy = 8;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
+  // Explicit: canvas y=0 → UV.y=1 → sphere +Y pole. Matches three.js's
+  // default but pinned so the mapping is unambiguous in code.
+  texture.flipY = true;
 
   const emissive = new THREE.Color('#0a1020');
 
