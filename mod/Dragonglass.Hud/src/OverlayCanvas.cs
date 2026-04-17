@@ -41,6 +41,11 @@ namespace Dragonglass.Hud
             Canvas canvas = _canvasGo.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = TopMostSortingOrder;
+            // GraphicRaycaster is what makes the EventSystem actually ask
+            // this canvas's raycast targets + filters whether they were
+            // hit. Without it, `raycastTarget = true` on the RawImage is
+            // silently ignored and every click falls through to KSP.
+            _canvasGo.AddComponent<GraphicRaycaster>();
             // No CanvasScaler — we want the RawImage to fill the physical
             // screen in pixels, and scaling is effectively controlled by
             // the anchors below (stretch to full screen).
