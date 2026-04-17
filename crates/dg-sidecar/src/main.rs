@@ -28,6 +28,32 @@ use dg_sidecar::app::{
 };
 use dg_shm::{shm_path_for_session, InputEvent, ShmWriter};
 
+/// Watch the parent process and self-terminate if it disappears.
+///
+/// When KSP is force-quit, the C# `Application.quitting` hook never
+/// fires, so `SidecarHost.Stop()` never gets to kill us. Without this
+/// watchdog the sidecar leaks and the user has to Force Quit it from
+/// the Dock.
+#[cfg(target_os = "macos")]
+fn spawn_parent_watchdog() {
+    // SAFETY: getppid() is always safe.
+    let original_parent = unsafe { libc::getppid() };
+    std::thread::Builder::new()
+        .name("parent-watchdog".into())
+        .spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let ppid = unsafe { libc::getppid() };
+            if ppid != original_parent {
+                eprintln!(
+                    "parent-watchdog: parent {} gone (now reparented to {}) — exiting",
+                    original_parent, ppid
+                );
+                std::process::exit(0);
+            }
+        })
+        .expect("spawn parent-watchdog thread");
+}
+
 /// Spawn a background thread serving static files from `root_dir`.
 /// Returns the base URL (e.g. `http://127.0.0.1:12345`).
 fn start_static_server(root_dir: &Path) -> Result<String> {
@@ -177,6 +203,9 @@ fn main() -> Result<()> {
     debug_assert_eq!(ret, -1);
 
     eprintln!("main process starting");
+
+    #[cfg(target_os = "macos")]
+    spawn_parent_watchdog();
 
     #[cfg(target_os = "macos")]
     dg_sidecar::mac::setup_application();
