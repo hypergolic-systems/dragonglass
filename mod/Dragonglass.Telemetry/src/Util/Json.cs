@@ -48,6 +48,15 @@ namespace Dragonglass.Telemetry.Util
             sb.Append(d.ToString("R", CultureInfo.InvariantCulture));
         }
 
+        public static void WriteFloat(StringBuilder sb, float f)
+        {
+            // "R" on a float gives the shortest string that round-trips
+            // back to the same float — considerably more compact than
+            // casting to double and writing the full double-precision
+            // form.
+            sb.Append(f.ToString("R", CultureInfo.InvariantCulture));
+        }
+
         public static void WriteLong(StringBuilder sb, long n)
         {
             sb.Append(n.ToString(CultureInfo.InvariantCulture));
