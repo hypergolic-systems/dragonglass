@@ -1,0 +1,75 @@
+// Game-level discrete state: which scene KSP is in, the active
+// vessel's ID, and the current timewarp multiplier. Unlike ClockTopic,
+// these values only change at specific events (scene transitions,
+// vessel switches, warp button presses), so the topic stays quiet for
+// long stretches and only broadcasts on actual state changes.
+//
+// Wire format (positional array):
+//   data: [scene, activeVesselId, timewarp]
+//     scene           : GameScenes enum as string, e.g. "FLIGHT"
+//     activeVesselId  : GUID string of the active vessel, or null
+//     timewarp        : multiplier as a number. 1-4 → physics warp;
+//                       5+ → on-rails warp (5, 10, 50, 100, 1000, …)
+
+using System;
+using System.Text;
+using Dragonglass.Telemetry.Util;
+using UnityEngine;
+
+namespace Dragonglass.Telemetry.Topics
+{
+    public sealed class GameTopic : Topic
+    {
+        public override string Name { get { return "game"; } }
+
+        private GameScenes _scene;
+        public GameScenes Scene
+        {
+            get { return _scene; }
+            set { if (_scene != value) { _scene = value; MarkDirty(); } }
+        }
+
+        private Guid? _activeVesselId;
+        public Guid? ActiveVesselId
+        {
+            get { return _activeVesselId; }
+            set { if (!Nullable.Equals(_activeVesselId, value)) { _activeVesselId = value; MarkDirty(); } }
+        }
+
+        private float _timewarp = 1f;
+        public float Timewarp
+        {
+            get { return _timewarp; }
+            set { if (_timewarp != value) { _timewarp = value; MarkDirty(); } }
+        }
+
+        private void Update()
+        {
+            Scene = HighLogic.LoadedScene;
+            if (FlightGlobals.fetch != null)
+            {
+                Vessel active = FlightGlobals.ActiveVessel;
+                ActiveVesselId = active != null ? active.id : (Guid?)null;
+            }
+            else
+            {
+                ActiveVesselId = null;
+            }
+            Timewarp = TimeWarp.CurrentRate;
+        }
+
+        public override void WriteData(StringBuilder sb)
+        {
+            sb.Append('[');
+            Json.WriteString(sb, _scene.ToString());
+            sb.Append(',');
+            if (_activeVesselId.HasValue)
+                Json.WriteString(sb, _activeVesselId.Value.ToString("D"));
+            else
+                Json.WriteNull(sb);
+            sb.Append(',');
+            Json.WriteDouble(sb, _timewarp);
+            sb.Append(']');
+        }
+    }
+}

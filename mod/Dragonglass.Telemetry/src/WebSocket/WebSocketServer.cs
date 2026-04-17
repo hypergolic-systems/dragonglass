@@ -38,6 +38,14 @@ namespace Dragonglass.Telemetry.WebSocket
 
         public event Action<int> ClientsChanged;
 
+        /// <summary>
+        /// Fires after a client's handshake succeeds and its reader
+        /// thread is running. Handlers run on the accept thread — keep
+        /// them fast and thread-safe. Typical use: send an initial
+        /// snapshot frame to the newly-connected client.
+        /// </summary>
+        public event Action<WebSocketConnection> ClientConnected;
+
         public int ClientCount
         {
             get { lock (_clientLock) return _clients.Count; }
@@ -164,7 +172,16 @@ namespace Dragonglass.Telemetry.WebSocket
             lock (_clientLock) count = _clients.Count;
             Debug.Log(LogPrefix + "client connected from " + conn.Remote +
                       " (total: " + count + ")");
+            RaiseClientConnected(conn);
             RaiseClientsChanged(count);
+        }
+
+        private void RaiseClientConnected(WebSocketConnection conn)
+        {
+            Action<WebSocketConnection> handler = ClientConnected;
+            if (handler == null) return;
+            try { handler(conn); }
+            catch (Exception e) { Debug.LogWarning(LogPrefix + "ClientConnected handler threw: " + e.Message); }
         }
 
         private void RemoveClient(WebSocketConnection conn)

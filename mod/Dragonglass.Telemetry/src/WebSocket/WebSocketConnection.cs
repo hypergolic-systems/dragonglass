@@ -18,7 +18,7 @@ using UnityEngine;
 
 namespace Dragonglass.Telemetry.WebSocket
 {
-    internal sealed class WebSocketConnection : IDisposable
+    public sealed class WebSocketConnection : IDisposable
     {
         private const string LogPrefix = "[Dragonglass/Telemetry] ";
 
