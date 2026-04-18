@@ -31,6 +31,7 @@ namespace Dragonglass.Telemetry
         private WebSocketServer _server;
         private TopicRegistry _registry;
         private TopicBroadcaster _broadcaster;
+        private OpDispatcher _dispatcher;
 
         private void Awake()
         {
@@ -66,6 +67,7 @@ namespace Dragonglass.Telemetry
             _registry = new TopicRegistry();
             TopicRegistry.SetInstance(_registry);
             _broadcaster = new TopicBroadcaster(_registry, _server);
+            _dispatcher = new OpDispatcher(_registry, _server);
 
             // Topics self-register via their OnEnable hook.
             gameObject.AddComponent<GameTopic>();
@@ -74,6 +76,9 @@ namespace Dragonglass.Telemetry
 
         private void Update()
         {
+            // Drain inbound ops first so any state they change is
+            // reflected in the same frame's broadcast.
+            _dispatcher?.Drain();
             _broadcaster?.Tick();
         }
 

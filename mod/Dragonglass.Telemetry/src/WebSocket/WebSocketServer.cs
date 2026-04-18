@@ -46,6 +46,15 @@ namespace Dragonglass.Telemetry.WebSocket
         /// </summary>
         public event Action<WebSocketConnection> ClientConnected;
 
+        /// <summary>
+        /// Fires for every complete text frame received from any
+        /// connected client. Handlers run on that connection's reader
+        /// thread — they must be thread-safe relative to Unity's main
+        /// thread. Typical use: parse the op envelope and enqueue it
+        /// for a main-thread drain.
+        /// </summary>
+        public event Action<WebSocketConnection, string> TextReceived;
+
         public int ClientCount
         {
             get { lock (_clientLock) return _clients.Count; }
@@ -161,7 +170,8 @@ namespace Dragonglass.Telemetry.WebSocket
                 return;
             }
 
-            WebSocketConnection conn = new WebSocketConnection(ws, tcp, RemoveClient);
+            WebSocketConnection conn = new WebSocketConnection(
+                ws, tcp, RemoveClient, RaiseTextReceived);
             lock (_clientLock)
             {
                 _clients.Add(conn);
@@ -182,6 +192,14 @@ namespace Dragonglass.Telemetry.WebSocket
             if (handler == null) return;
             try { handler(conn); }
             catch (Exception e) { Debug.LogWarning(LogPrefix + "ClientConnected handler threw: " + e.Message); }
+        }
+
+        private void RaiseTextReceived(WebSocketConnection conn, string text)
+        {
+            Action<WebSocketConnection, string> handler = TextReceived;
+            if (handler == null) return;
+            try { handler(conn, text); }
+            catch (Exception e) { Debug.LogWarning(LogPrefix + "TextReceived handler threw: " + e.Message); }
         }
 
         private void RemoveClient(WebSocketConnection conn)

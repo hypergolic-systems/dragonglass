@@ -52,6 +52,7 @@
 //                  Matches stock KSP:
 //                  `vessel.obt_velocity - target.GetObtVelocity()`.
 
+using System.Collections.Generic;
 using System.Text;
 using Dragonglass.Telemetry.Util;
 using UnityEngine;
@@ -229,6 +230,27 @@ namespace Dragonglass.Telemetry.Topics
             Vector3 north = Vector3.ProjectOnPlane(planetNorth, up);
             if (north.sqrMagnitude < 1e-8f) return Quaternion.identity;
             return Quaternion.LookRotation(north.normalized, up);
+        }
+
+        public override void HandleOp(string op, List<object> args)
+        {
+            Vessel v = FlightGlobals.ActiveVessel;
+            if (v == null) return;
+            switch (op)
+            {
+                case "setSas":
+                    if (args.Count == 1 && args[0] is bool s)
+                        v.ActionGroups[KSPActionGroup.SAS] = s;
+                    break;
+                case "setRcs":
+                    if (args.Count == 1 && args[0] is bool r)
+                        v.ActionGroups[KSPActionGroup.RCS] = r;
+                    break;
+                default:
+                    Debug.LogWarning("[Dragonglass/Telemetry] FlightTopic: " +
+                                     "unknown op '" + op + "'");
+                    break;
+            }
         }
 
         public override void WriteData(StringBuilder sb)

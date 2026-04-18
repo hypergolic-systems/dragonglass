@@ -15,7 +15,7 @@
 // immediately, so components that mount late don't stare at their
 // defaults until the next server push.
 
-import type { Ksp, Topic } from '../core/ksp';
+import type { Ksp, Topic, OpArgs } from '../core/ksp';
 import { decodeClock, decodeGame, decodeFlight } from './decoders';
 
 const RECONNECT_DELAY_MS = 1000;
@@ -44,7 +44,7 @@ export class DragonglassTelemetry implements Ksp {
     this.url = url;
   }
 
-  subscribe<T>(topic: Topic<T>, cb: (frame: T) => void): () => void {
+  subscribe<T, Ops>(topic: Topic<T, Ops>, cb: (frame: T) => void): () => void {
     let set = this.subs.get(topic.name);
     if (!set) {
       set = new Set();
@@ -63,6 +63,22 @@ export class DragonglassTelemetry implements Ksp {
       bucket.delete(cb as Callback);
       if (bucket.size === 0) this.subs.delete(topic.name);
     };
+  }
+
+  send<T, Ops, K extends keyof Ops & string>(
+    topic: Topic<T, Ops>,
+    op: K,
+    ...args: OpArgs<Ops, K>
+  ): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // Fire-and-forget. No queueing across reconnects — the next user
+    // action will send once the socket is back up.
+    try {
+      ws.send(JSON.stringify({ topic: topic.name, op, args }));
+    } catch (err) {
+      console.warn('[dragonglass] send failed:', err);
+    }
   }
 
   connect(): Promise<void> {

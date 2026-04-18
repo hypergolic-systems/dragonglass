@@ -60,5 +60,21 @@ namespace Dragonglass.Telemetry.Topics
             }
             return null;
         }
+
+        /// <summary>
+        /// Look up a topic by its wire-level name. Used by the inbound
+        /// op dispatcher to route `{"topic":"...","op":"..."}` frames
+        /// to the right instance. Returns null if not found. Main-
+        /// thread only (consistent with Register/Unregister).
+        /// </summary>
+        public Topic GetByName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            for (int i = 0; i < _topics.Count; i++)
+            {
+                if (_topics[i].Name == name) return _topics[i];
+            }
+            return null;
+        }
     }
 }

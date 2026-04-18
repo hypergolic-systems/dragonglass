@@ -1,4 +1,4 @@
-import type { Topic, Ksp } from '../core/ksp';
+import type { Topic, Ksp, OpArgs } from '../core/ksp';
 import { FlightTopic, GameTopic, AssemblyTopic } from '../core/topics';
 import type { GameData } from '../core/game-data';
 import { FlightSimulation } from './flight-sim';
@@ -19,7 +19,7 @@ export class SimulatedKsp implements Ksp {
   private last = 0;
   private cleanupKeyboard: (() => void) | null = null;
 
-  subscribe<T>(topic: Topic<T>, cb: (frame: T) => void): () => void {
+  subscribe<T, Ops>(topic: Topic<T, Ops>, cb: (frame: T) => void): () => void {
     let set = this.subs.get(topic.name);
     if (!set) {
       set = new Set();
@@ -39,6 +39,23 @@ export class SimulatedKsp implements Ksp {
       set!.delete(cb as (frame: any) => void);
       if (set!.size === 0) this.subs.delete(topic.name);
     };
+  }
+
+  send<T, Ops, K extends keyof Ops & string>(
+    topic: Topic<T, Ops>,
+    op: K,
+    ...args: OpArgs<Ops, K>
+  ): void {
+    // Forward flight ops to the local simulation so dev-mode buttons
+    // are actually interactive. Unknown (topic, op) combinations drop
+    // silently — same posture as the mod.
+    if (topic.name === FlightTopic.name) {
+      if (op === 'setSas' && typeof args[0] === 'boolean') {
+        this.sim.setSas(args[0]);
+      } else if (op === 'setRcs' && typeof args[0] === 'boolean') {
+        this.sim.setRcs(args[0]);
+      }
+    }
   }
 
   connect(): Promise<void> {

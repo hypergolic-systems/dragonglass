@@ -1,14 +1,18 @@
 // Per-client state wrapper around a server-side `System.Net.WebSockets.WebSocket`.
 // The reader thread loops on ReceiveAsync so the underlying ManagedWebSocket
 // can process incoming control frames (close, pong) even when the application
-// layer only cares about sending. On close or error the connection removes
-// itself from the server's client list via the provided callback.
+// layer mostly cares about sending. Text frames are assembled across fragment
+// boundaries and handed to `onText` (typically the op dispatcher).
 //
 // Concurrency: SendText may be called from any thread, but at most one
 // SendAsync is in flight at a time (protected by `_sendLock`). The reader
-// thread is the only one that touches ReceiveAsync.
+// thread is the only one that touches ReceiveAsync — so `onText` is always
+// invoked on the reader thread; handlers must be thread-safe relative to
+// Unity's main thread (typically by enqueuing onto a main-thread-drained
+// queue).
 
 using System;
+using System.IO;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
@@ -25,6 +29,7 @@ namespace Dragonglass.Telemetry.WebSocket
         private readonly System.Net.WebSockets.WebSocket _ws;
         private readonly TcpClient _tcp;
         private readonly Action<WebSocketConnection> _onClosed;
+        private readonly Action<WebSocketConnection, string> _onText;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly object _sendLock = new object();
         private readonly string _remote;
@@ -36,11 +41,13 @@ namespace Dragonglass.Telemetry.WebSocket
         public WebSocketConnection(
             System.Net.WebSockets.WebSocket ws,
             TcpClient tcp,
-            Action<WebSocketConnection> onClosed)
+            Action<WebSocketConnection> onClosed,
+            Action<WebSocketConnection, string> onText = null)
         {
             _ws = ws;
             _tcp = tcp;
             _onClosed = onClosed;
+            _onText = onText;
             _remote = tcp.Client.RemoteEndPoint != null
                 ? tcp.Client.RemoteEndPoint.ToString()
                 : "<unknown>";
@@ -89,6 +96,10 @@ namespace Dragonglass.Telemetry.WebSocket
         {
             byte[] buf = new byte[4096];
             var segment = new ArraySegment<byte>(buf);
+            // Accumulator for text frames that span multiple reads. Reset
+            // after each EndOfMessage; sized for typical op envelopes
+            // (tens of bytes) but grows cheaply for larger payloads.
+            MemoryStream textAccum = null;
             try
             {
                 while (!_disposed && _ws.State == WebSocketState.Open)
@@ -117,7 +128,37 @@ namespace Dragonglass.Telemetry.WebSocket
                         // frame; we just exit the loop.
                         break;
                     }
-                    // Text/binary inbound — MVP is one-way broadcast, discard.
+
+                    if (result.MessageType == WebSocketMessageType.Text &&
+                        _onText != null && result.Count > 0)
+                    {
+                        if (textAccum == null) textAccum = new MemoryStream();
+                        textAccum.Write(buf, 0, result.Count);
+                        if (result.EndOfMessage)
+                        {
+                            string text;
+                            try
+                            {
+                                text = Encoding.UTF8.GetString(
+                                    textAccum.GetBuffer(), 0, (int)textAccum.Length);
+                            }
+                            catch (Exception e)
+                            {
+                                Debug.LogWarning(LogPrefix + "bad UTF-8 from " +
+                                                 _remote + ": " + e.Message);
+                                textAccum.SetLength(0);
+                                continue;
+                            }
+                            textAccum.SetLength(0);
+                            try { _onText(this, text); }
+                            catch (Exception e)
+                            {
+                                Debug.LogWarning(LogPrefix + "onText handler threw: " +
+                                                 e.Message);
+                            }
+                        }
+                    }
+                    // Binary frames are ignored.
                 }
             }
             catch (Exception e)

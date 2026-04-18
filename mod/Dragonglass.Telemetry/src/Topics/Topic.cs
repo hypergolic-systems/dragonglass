@@ -13,6 +13,7 @@
 // cadence and clears the flag; if nothing moved between flushes,
 // nothing goes on the wire.
 
+using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
@@ -39,6 +40,19 @@ namespace Dragonglass.Telemetry.Topics
         /// The broadcaster wraps this in the full envelope.
         /// </summary>
         public abstract void WriteData(StringBuilder sb);
+
+        /// <summary>
+        /// Dispatch an inbound op (e.g. <c>setSas</c>) parsed from a
+        /// <c>{"topic":"...","op":"...","args":[...]}</c> envelope.
+        /// Invoked on Unity's main thread by <see cref="OpDispatcher"/>,
+        /// so implementations may freely touch KSP state.
+        /// Default is log + ignore; override per-topic to add behavior.
+        /// </summary>
+        public virtual void HandleOp(string op, List<object> args)
+        {
+            Debug.LogWarning("[Dragonglass/Telemetry] topic '" + Name +
+                             "' has no op handler (got '" + op + "')");
+        }
 
         protected virtual void OnEnable()
         {

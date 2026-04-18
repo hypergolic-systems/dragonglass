@@ -74,6 +74,14 @@ export class FlightSimulation {
     };
   }
 
+  setSas(enabled: boolean): void {
+    this.data.sas = enabled;
+  }
+
+  setRcs(enabled: boolean): void {
+    this.data.rcs = enabled;
+  }
+
   tick(dt: number): void {
     const { keys, angVel, dq, axis, data } = this;
 

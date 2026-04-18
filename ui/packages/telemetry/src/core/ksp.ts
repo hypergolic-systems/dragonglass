@@ -1,23 +1,31 @@
 // ---- Topic: a branded type-safe key ----
 
 /**
- * A typed topic key. The phantom `__brand` field captures `T` so that
- * TypeScript's structural type system can distinguish Topic<A> from
- * Topic<B>. It is never populated at runtime.
+ * A typed topic key. The phantom `__brand` captures the inbound data
+ * type `T`; the phantom `__opsBrand` captures an optional ops
+ * interface (methods the client can invoke on the server). Both are
+ * phantom — never populated at runtime — and `Ops` defaults to
+ * `never`, so read-only topics stay unchanged.
  */
-export interface Topic<T> {
+export interface Topic<T, Ops = never> {
   readonly name: string;
   /** @internal phantom field — do not use at runtime */
   readonly __brand: T;
+  /** @internal phantom field — do not use at runtime */
+  readonly __opsBrand: Ops;
 }
 
 /**
- * Create a topic singleton. The `as` cast is safe because `__brand`
- * is a phantom field that only exists for the type checker.
+ * Create a topic singleton. The `as` cast is safe because both
+ * phantom fields only exist for the type checker.
  */
-export function topic<T>(name: string): Topic<T> {
-  return { name } as Topic<T>;
+export function topic<T, Ops = never>(name: string): Topic<T, Ops> {
+  return { name } as Topic<T, Ops>;
 }
+
+/** Extract the parameter tuple of a method on an ops interface. */
+export type OpArgs<Ops, K extends keyof Ops> =
+  Ops[K] extends (...args: infer A) => unknown ? A : never;
 
 // ---- Ksp interface ----
 
@@ -33,7 +41,19 @@ export interface Ksp {
    * Ref-counted: the first subscriber activates the topic,
    * the last unsubscribe deactivates it.
    */
-  subscribe<T>(topic: Topic<T>, cb: (frame: T) => void): () => void;
+  subscribe<T, Ops>(topic: Topic<T, Ops>, cb: (frame: T) => void): () => void;
+
+  /**
+   * Invoke an op on a topic (client → server). Fire-and-forget —
+   * no ack, no reply. Only usable against topics whose `Ops`
+   * parameter is populated; the op name and argument tuple are
+   * both type-checked against that interface.
+   */
+  send<T, Ops, K extends keyof Ops & string>(
+    topic: Topic<T, Ops>,
+    op: K,
+    ...args: OpArgs<Ops, K>
+  ): void;
 
   /** Start the data source. Resolves when ready to receive subscriptions. */
   connect(): Promise<void>;
