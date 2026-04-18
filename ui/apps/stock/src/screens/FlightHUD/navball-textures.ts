@@ -117,12 +117,22 @@ export function drawNavballTexture(): HTMLCanvasElement {
     { u: 0.5, label: 'E' },
     { u: 0.75, label: 'S' },
   ];
+  // Draw each glyph three times (x-W, x, x+W) so labels positioned
+  // on the U=0 seam stitch cleanly. At u=0 a naive center-aligned
+  // fillText clips its left half against the canvas edge; the +W
+  // copy lands near the right edge and, because the sphere texture
+  // wraps S, completes the glyph across the seam.
+  const drawWrapped = (label: string, x: number, y: number) => {
+    ctx.fillText(label, x - W, y);
+    ctx.fillText(label, x, y);
+    ctx.fillText(label, x + W, y);
+  };
   cardinals.forEach(({ u, label }) => {
     const x = u * W;
     ctx.fillStyle = '#f3f9ff';
-    ctx.fillText(label, x, eq - 48);
+    drawWrapped(label, x, eq - 48);
     ctx.fillStyle = '#fbe9d4';
-    ctx.fillText(label, x, eq + 48);
+    drawWrapped(label, x, eq + 48);
   });
 
   // Intermediate heading numbers every 30°
@@ -147,8 +157,10 @@ export function drawNavballTexture(): HTMLCanvasElement {
       el > 0 ? 'rgba(232, 244, 255, 0.85)' : 'rgba(248, 224, 196, 0.85)';
     [0, 0.25, 0.5, 0.75].forEach((u) => {
       const x = u * W;
-      ctx.fillText(label, x - 60, y);
-      ctx.fillText(label, x + 60, y);
+      // Same seam-wrap trick as the cardinals: the u=0 labels sit
+      // right on the seam, so draw each pair at x±W too.
+      drawWrapped(label, x - 60, y);
+      drawWrapped(label, x + 60, y);
     });
   }
 
