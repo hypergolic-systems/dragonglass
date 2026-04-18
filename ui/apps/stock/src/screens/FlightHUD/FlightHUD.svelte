@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { useFlightData } from '@dragonglass/telemetry/svelte';
+  import { useFlightData, useFlightOps } from '@dragonglass/telemetry/svelte';
   import Navball from './Navball.svelte';
   import CurvedTape from './CurvedTape.svelte';
+  import NavballIndicator from './NavballIndicator.svelte';
   import { formatSurfaceSpeed, formatAltitude } from './format';
   import { SPEED_SCALE, ALTITUDE_SCALE } from './tape-scales';
   import './FlightHUD.css';
 
   const s = useFlightData();
+  const ops = useFlightOps();
 
   // Derived speeds: surface-relative speed (shown by default on the
   // tape) and orbital speed (available for a future SURFACE/ORBIT
@@ -42,6 +44,16 @@
       modeLabel="ALT"
       scale={ALTITUDE_SCALE}
       formatReadout={formatAltitude}
+    />
+    <NavballIndicator
+      kind="rcs"
+      active={s.rcs}
+      onclick={() => ops.setRcs(!s.rcs)}
+    />
+    <NavballIndicator
+      kind="sas"
+      active={s.sas}
+      onclick={() => ops.setSas(!s.sas)}
     />
   </div>
 </div>

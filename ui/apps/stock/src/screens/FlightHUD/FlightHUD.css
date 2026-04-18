@@ -137,6 +137,72 @@
   filter: none;
 }
 
+/* ---------- SAS / RCS indicator wedge ---------- */
+/* Compact annular-wedge buttons capping the top of the navball, sharing
+   the tape's SVG footprint so they overlay in the same coordinate space.
+   Gray by default; lights up info-blue (SAS) or warn-amber (RCS) when
+   active, with a colored halo that reads at a glance against any scene. */
+
+.nav-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 488px;
+  height: 488px;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.nav-indicator__panel {
+  fill: var(--bg-panel-strong);
+  stroke: var(--fg-mute);
+  stroke-width: 0.9;
+}
+
+.nav-indicator__label {
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.24em;
+  fill: var(--fg-dim);
+  user-select: none;
+}
+
+/* Invisible hit target, sized to the wedge. Only added when a click
+   handler is present, so read-only indicators don't block input. */
+.nav-indicator__hit {
+  fill: transparent;
+  pointer-events: all;
+  cursor: pointer;
+  outline: none;
+  transition: stroke 180ms ease;
+}
+.nav-indicator__hit:focus-visible {
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+
+/* Active — SAS */
+.nav-indicator--active.nav-indicator--sas .nav-indicator__panel {
+  stroke: var(--info);
+  stroke-width: 1.4;
+  filter: drop-shadow(0 0 10px var(--info-glow));
+}
+.nav-indicator--active.nav-indicator--sas .nav-indicator__label {
+  fill: var(--info);
+  text-shadow: 0 0 10px var(--info-glow);
+}
+
+/* Active — RCS */
+.nav-indicator--active.nav-indicator--rcs .nav-indicator__panel {
+  stroke: var(--warn);
+  stroke-width: 1.4;
+  filter: drop-shadow(0 0 10px var(--warn-glow));
+}
+.nav-indicator--active.nav-indicator--rcs .nav-indicator__label {
+  fill: var(--warn);
+  text-shadow: 0 0 10px var(--warn-glow);
+}
+
 /* =========================================================
    Navball internals
    ========================================================= */
