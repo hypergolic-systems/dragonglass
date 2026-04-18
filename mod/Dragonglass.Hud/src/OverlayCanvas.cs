@@ -22,6 +22,7 @@ namespace Dragonglass.Hud
 
         private GameObject _canvasGo;
         private GameObject _imageGo;
+        private Canvas _canvas;
         private RawImage _rawImage;
         private Texture2D _texture;
         private HudRaycastFilter _raycastFilter;
@@ -29,6 +30,19 @@ namespace Dragonglass.Hud
         public int Width { get; }
         public int Height { get; }
         public Texture2D Texture { get { return _texture; } }
+
+        /// <summary>
+        /// Toggle the canvas's <see cref="Canvas.enabled"/> flag. Used
+        /// by the HUD addon to hide the overlay entirely while KSP's
+        /// inter-scene loading mask is up, so Unity doesn't composite
+        /// a stale CEF frame over the planet spinner before CEF has a
+        /// chance to publish a fresh one.
+        /// </summary>
+        public bool Visible
+        {
+            get { return _canvas != null && _canvas.enabled; }
+            set { if (_canvas != null) _canvas.enabled = value; }
+        }
 
         public OverlayCanvas(int width, int height)
         {
@@ -42,9 +56,9 @@ namespace Dragonglass.Hud
             // otherwise Unity drops the overlay GameObject on every
             // scene transition.
             UnityEngine.Object.DontDestroyOnLoad(_canvasGo);
-            Canvas canvas = _canvasGo.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = TopMostSortingOrder;
+            _canvas = _canvasGo.AddComponent<Canvas>();
+            _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            _canvas.sortingOrder = TopMostSortingOrder;
             // GraphicRaycaster is what makes the EventSystem actually ask
             // this canvas's raycast targets + filters whether they were
             // hit. Without it, `raycastTarget = true` on the RawImage is
@@ -140,6 +154,7 @@ namespace Dragonglass.Hud
         {
             _rawImage = null;
             _raycastFilter = null;
+            _canvas = null;
             if (_imageGo != null)
             {
                 UnityEngine.Object.Destroy(_imageGo);

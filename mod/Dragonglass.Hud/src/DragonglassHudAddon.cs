@@ -18,6 +18,7 @@
 // pixel copies.
 
 using System;
+using System.Reflection;
 using UnityEngine;
 
 namespace Dragonglass.Hud
@@ -65,6 +66,14 @@ namespace Dragonglass.Hud
         private float _nextShmRetryTime;
         private const float ShmRetryInterval = 0.5f;
 
+        // True between onGameSceneLoadRequested and
+        // onLevelWasLoadedGUIReady. Covers every inter-scene transition,
+        // including fast sync ones (e.g. Space Center → Editor) where
+        // the LoadingBufferMask shows and hides in the same frame — by
+        // the time our Update sees the mask, it's already down again,
+        // and the stale CEF blit would leak through otherwise.
+        private bool _sceneTransitioning;
+
         private void Awake()
         {
             // Persist across scene transitions so the HUD is mounted
@@ -78,7 +87,25 @@ namespace Dragonglass.Hud
             // release state on exit to Flight so the next entry starts
             // fresh.
             GameEvents.onLevelWasLoadedGUIReady.Add(OnSceneReady);
+            GameEvents.onGameSceneLoadRequested.Add(OnSceneLoadRequested);
+            GameEvents.onLevelWasLoadedGUIReady.Add(OnSceneGuiReady);
         }
+
+        private void OnSceneLoadRequested(GameScenes scene)
+        {
+            _sceneTransitioning = true;
+            // The event fires synchronously from HighLogic.LoadScene,
+            // typically deep inside a UI click handler that will
+            // block on SceneManager.LoadScene before control returns.
+            // Our next Update() won't run until after the block
+            // releases, but Unity's render for *this* frame happens
+            // after the block too — with the Canvas still in its
+            // pre-click state. Flipping visibility off here, not
+            // just in Update, makes sure the stale frame is gone
+            // before Frame N's render.
+            if (_overlay != null) _overlay.Visible = false;
+        }
+        private void OnSceneGuiReady(GameScenes scene) { _sceneTransitioning = false; }
 
         private void Start()
         {
@@ -263,6 +290,23 @@ namespace Dragonglass.Hud
                 SampleAndForwardMouse();
                 MaybeEmitResize();
             }
+
+            // --- Gate the overlay through any form of scene loading.
+            //     Union of two signals:
+            //       • LoadingBufferMask.camera.enabled — the
+            //         planet-spinner overlay, up for the visible chunk
+            //         of async transitions (SPACECENTER etc.)
+            //       • Scene transition window — between
+            //         onGameSceneLoadRequested and
+            //         onLevelWasLoadedGUIReady, covers sync transitions
+            //         (e.g. SPACECENTER → EDITOR) where the mask shows
+            //         and hides in the same frame.
+            //     Hiding the canvas stops Unity compositing the stale
+            //     CEF blit over whatever KSP draws in the transition.
+            //     We still run the blit pipeline underneath so the
+            //     backing texture is current by the time we un-hide. ---
+            bool loading = IsLoadingMaskVisible() || _sceneTransitioning;
+            if (_overlay != null) _overlay.Visible = !loading;
 
             // --- Pixel pipeline: sidecar → KSP overlay ---
             if (_reader != null && _overlay != null)
@@ -451,9 +495,32 @@ namespace Dragonglass.Hud
             }
         }
 
+        // Stock KSP's inter-scene loading buffer (planet spinner).
+        // LoadingBufferMask.Instance is the persistent singleton the
+        // rest of KSP uses to show/hide the overlay; its `camera.enabled`
+        // flips true inside OnSceneChange (subscribed to
+        // onGameSceneLoadRequested) and false when ShowDuration
+        // finishes — which spans the whole visible "loading"
+        // experience including the FlightGlobals.ready tail into
+        // Flight. Instance is internal so we reach it by reflection
+        // once, cached.
+        private static readonly FieldInfo _maskInstanceField =
+            typeof(LoadingBufferMask).GetField("Instance",
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+
+        private static bool IsLoadingMaskVisible()
+        {
+            LoadingBufferMask mask = _maskInstanceField != null
+                ? _maskInstanceField.GetValue(null) as LoadingBufferMask
+                : null;
+            return mask != null && mask.camera != null && mask.camera.enabled;
+        }
+
         private void OnDestroy()
         {
             GameEvents.onLevelWasLoadedGUIReady.Remove(OnSceneReady);
+            GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
+            GameEvents.onLevelWasLoadedGUIReady.Remove(OnSceneGuiReady);
 
             if (_reader != null)
             {
