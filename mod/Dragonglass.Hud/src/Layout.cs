@@ -81,6 +81,13 @@ namespace Dragonglass.Hud
         public const byte InputMouseDown = 2;
         public const byte InputMouseUp = 3;
         public const byte InputMouseWheel = 4;
+        /// <summary>
+        /// Plugin is asking the sidecar to resize its CEF viewport +
+        /// backing IOSurface. `x` carries the new width, `y` the new
+        /// height (both positive i32 pixel counts). Button stays
+        /// <see cref="InputBtnNone"/>.
+        /// </summary>
+        public const byte InputResize = 5;
 
         // Input button codes (u8).
         public const byte InputBtnNone = 0;

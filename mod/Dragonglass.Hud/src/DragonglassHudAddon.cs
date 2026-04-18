@@ -27,16 +27,18 @@ namespace Dragonglass.Hud
     {
         private const string LogPrefix = "[Dragonglass/Hud] ";
 
-        // Must match the sidecar's VIEWPORT_WIDTH/HEIGHT constants in
-        // sidecar/src/app.rs AND KSP's physical window resolution —
-        // otherwise the RawImage stretches and the HUD gets squished.
-        // Temporary: hardcoded until we add a runtime handshake so the
-        // plugin can adapt to whatever resolution the user launched at.
-        private const int OverlayWidth = 1920;
-        private const int OverlayHeight = 1200;
-
         private OverlayCanvas _overlay;
         private ShmReader _reader;
+
+        // Last (width, height) we emitted as an InputResize. KSP on
+        // macOS only changes resolution at Settings → Apply moments —
+        // there's no live window-drag feed that would need debouncing,
+        // so we just diff against this and emit on any change.
+        private int _lastSentWidth = -1;
+        private int _lastSentHeight = -1;
+        // Last IoSurfaceGen we reacted to — detecting a roll is how we
+        // notice the sidecar just published a new canvas surface.
+        private uint _lastSeenGen;
 
         private bool _zeroCopyAvailable;
         private int _zeroCopyBackend;
@@ -84,13 +86,21 @@ namespace Dragonglass.Hud
 
             SidecarHost.EnsureRunning();
 
+            // Seed the overlay from the current window size. If the
+            // sidecar is still at its bootstrap 1920×1200 by the time
+            // we blit, the first frames will briefly stretch — the
+            // plugin emits an InputResize shortly after and the
+            // sidecar catches up.
+            int initialW = Mathf.Max(1, Screen.width);
+            int initialH = Mathf.Max(1, Screen.height);
+
             try
             {
-                _overlay = new OverlayCanvas(OverlayWidth, OverlayHeight);
+                _overlay = new OverlayCanvas(initialW, initialH);
                 // Preload with the B3 test pattern so we get *something*
                 // on screen even if the sidecar isn't running.
-                _overlay.ApplyBgra(BuildTestPattern(OverlayWidth, OverlayHeight));
-                Debug.Log(LogPrefix + "overlay canvas ready (" + OverlayWidth + "x" + OverlayHeight + ")");
+                _overlay.ApplyBgra(BuildTestPattern(initialW, initialH));
+                Debug.Log(LogPrefix + "overlay canvas ready (" + initialW + "x" + initialH + ")");
             }
             catch (System.Exception e)
             {
@@ -156,16 +166,14 @@ namespace Dragonglass.Hud
             string shmPath = ShmReader.DefaultPath();
             try
             {
+                // Dimensions are now runtime-negotiated: the shm header's
+                // width/height reflect the sidecar's *current* IOSurface
+                // size, not a fixed contract. Sanity already lives in
+                // ShmReader.Open (magic, version, w/h > 0, stride =
+                // w*4) — nothing more to check here.
                 _reader = ShmReader.Open(shmPath);
-                if (_reader.Width != OverlayWidth || _reader.Height != OverlayHeight)
-                {
-                    Debug.LogWarning(LogPrefix + "shm dimensions " + _reader.Width + "x" + _reader.Height +
-                        " do not match overlay " + OverlayWidth + "x" + OverlayHeight + "; ignoring");
-                    _reader.Dispose();
-                    _reader = null;
-                    return;
-                }
-                Debug.Log(LogPrefix + "shm open: " + shmPath);
+                Debug.Log(LogPrefix + "shm open: " + shmPath +
+                          " (" + _reader.Width + "x" + _reader.Height + ")");
             }
             catch (System.Exception e)
             {
@@ -186,13 +194,58 @@ namespace Dragonglass.Hud
             }
             else
             {
-                NativeBridge.DgHudNative_SetTargetTexture(dest, OverlayWidth, OverlayHeight);
+                NativeBridge.DgHudNative_SetTargetTexture(dest, _overlay.Width, _overlay.Height);
                 _zeroCopyAvailable = true;
                 Debug.Log(LogPrefix + "zero-copy path active [" +
                     NativeBridge.BackendName(_zeroCopyBackend) +
                     "] dest=" + dest.ToString("x") +
                     " renderEvent=" + _renderEventFunc.ToString("x"));
             }
+        }
+
+        /// <summary>
+        /// Tear down and recreate the overlay canvas at new dims,
+        /// rebinding it to the native blit target. Called after the
+        /// sidecar confirms a resize by publishing an IOSurface at the
+        /// new size — never on the plugin's own initiative, so the
+        /// blit is always size-matched.
+        /// </summary>
+        private void RecreateOverlay(int width, int height)
+        {
+            Debug.Log(LogPrefix + "resize overlay " +
+                      _overlay.Width + "x" + _overlay.Height +
+                      " -> " + width + "x" + height);
+            _overlay.Dispose();
+            _overlay = new OverlayCanvas(width, height);
+
+            System.IntPtr dest = _overlay.GetNativeTexturePtr();
+            if (dest == System.IntPtr.Zero)
+            {
+                Debug.LogWarning(LogPrefix + "new overlay has no native handle; " +
+                                 "zero-copy path offline until next frame");
+                return;
+            }
+            NativeBridge.DgHudNative_SetTargetTexture(dest, width, height);
+        }
+
+        /// <summary>
+        /// Diff <c>Screen.width/height</c> against the last size we
+        /// emitted and fire an <see cref="Layout.InputResize"/> event
+        /// whenever they change. No-op until the shm is open —
+        /// resize events need the ring buffer.
+        /// </summary>
+        private void MaybeEmitResize()
+        {
+            if (_reader == null) return;
+
+            int sw = Mathf.Max(1, Screen.width);
+            int sh = Mathf.Max(1, Screen.height);
+            if (sw == _lastSentWidth && sh == _lastSentHeight) return;
+
+            _reader.WriteInputEvent(Layout.InputResize, Layout.InputBtnNone, sw, sh);
+            _lastSentWidth = sw;
+            _lastSentHeight = sh;
+            Debug.Log(LogPrefix + "resize request -> " + sw + "x" + sh);
         }
 
         private void Update()
@@ -208,6 +261,7 @@ namespace Dragonglass.Hud
             if (_reader != null)
             {
                 SampleAndForwardMouse();
+                MaybeEmitResize();
             }
 
             // --- Pixel pipeline: sidecar → KSP overlay ---
@@ -218,6 +272,25 @@ namespace Dragonglass.Hud
                     ShmReader.HeaderSnapshot snap;
                     if (_reader.TryReadHeader(out snap) && snap.IoSurfaceId != 0)
                     {
+                        // A gen roll means the sidecar just published a
+                        // different canvas IOSurface. Before we hand the
+                        // new id to the render thread, make sure our
+                        // destination texture is the same size — if the
+                        // roll was caused by a resize, rebuild the
+                        // overlay so the blit is 1:1.
+                        if (snap.IoSurfaceGen != _lastSeenGen)
+                        {
+                            _lastSeenGen = snap.IoSurfaceGen;
+                            uint srcW, srcH;
+                            if (NativeBridge.DgHudNative_GetSourceSize(
+                                    snap.IoSurfaceId, out srcW, out srcH) == 1
+                                && (srcW != (uint)_overlay.Width ||
+                                    srcH != (uint)_overlay.Height))
+                            {
+                                RecreateOverlay((int)srcW, (int)srcH);
+                            }
+                        }
+
                         NativeBridge.DgHudNative_UpdatePending(
                             snap.IoSurfaceId, snap.IoSurfaceGen);
                         if (_renderEventFunc != System.IntPtr.Zero)
@@ -293,12 +366,20 @@ namespace Dragonglass.Hud
             int screenH = Screen.height;
             if (screenW <= 0 || screenH <= 0) return;
 
-            int cefX = (int)((mouse.x / (float)screenW) * OverlayWidth);
-            int cefY = (int)(((screenH - mouse.y) / (float)screenH) * OverlayHeight);
+            // Coordinate scaling uses the current overlay dims (which
+            // match CEF's viewport after the resize handshake). During
+            // the brief resize transition these may disagree with
+            // Screen.width/height — the mouse hit-test is briefly
+            // offset, but the window isn't receiving meaningful input
+            // mid-resize anyway.
+            int overlayW = _overlay != null ? _overlay.Width : screenW;
+            int overlayH = _overlay != null ? _overlay.Height : screenH;
+            int cefX = (int)((mouse.x / (float)screenW) * overlayW);
+            int cefY = (int)(((screenH - mouse.y) / (float)screenH) * overlayH);
             if (cefX < 0) cefX = 0;
-            else if (cefX >= OverlayWidth) cefX = OverlayWidth - 1;
+            else if (cefX >= overlayW) cefX = overlayW - 1;
             if (cefY < 0) cefY = 0;
-            else if (cefY >= OverlayHeight) cefY = OverlayHeight - 1;
+            else if (cefY >= overlayH) cefY = overlayH - 1;
 
             // Always forward mouse moves so CEF has correct hover state.
             if (!_hasLastMouse || mouse != _lastMousePosition)

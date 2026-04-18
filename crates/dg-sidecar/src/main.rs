@@ -24,7 +24,7 @@ use cef::{args::Args, *};
 use dg_sidecar::app::{
     BrowserSlot, KspAppBuilder, KspAppInner, KspBrowserProcessHandlerBuilder,
     KspBrowserProcessHandlerInner, KspClientBuilder, KspRenderHandlerBuilder,
-    KspRenderHandlerInner, VIEWPORT_HEIGHT, VIEWPORT_WIDTH,
+    KspRenderHandlerInner, INITIAL_HEIGHT, INITIAL_WIDTH,
 };
 use dg_shm::{shm_path_for_session, InputEvent, ShmWriter};
 
@@ -121,7 +121,9 @@ fn start_static_server(root_dir: &Path) -> Result<String> {
 }
 
 /// Map an `InputEvent` from the SHM ring buffer into a CEF
-/// `BrowserHost::send_mouse_*` call.
+/// `BrowserHost::send_mouse_*` call. Resize events are handled by
+/// `handle_resize` instead — they need extra state (the render
+/// handler + canvas bridge) beyond what this function takes.
 fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent) {
     use dg_shm::layout::{
         INPUT_BTN_LEFT, INPUT_BTN_MIDDLE, INPUT_BTN_RIGHT, INPUT_MOUSE_DOWN, INPUT_MOUSE_MOVE,
@@ -153,6 +155,38 @@ fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent) {
         }
         _ => {}
     }
+}
+
+/// Handle an `INPUT_RESIZE` event from the plugin. Recreates the
+/// canvas IOSurface at the requested dims, republishes the new size
+/// in the SHM header, and tells CEF to re-query `view_rect` via
+/// `was_resized`. Order matters: the new canvas bridge + atomics land
+/// first so the next `on_accelerated_paint` writes into a surface
+/// that's already at the new size.
+fn handle_resize(handler: &KspRenderHandlerInner, host: &cef::BrowserHost, evt: InputEvent) {
+    if evt.x <= 0 || evt.y <= 0 {
+        eprintln!("resize: ignoring invalid dims {}x{}", evt.x, evt.y);
+        return;
+    }
+    let (w, h) = (evt.x as u32, evt.y as u32);
+    eprintln!("resize → {}x{}", w, h);
+
+    #[cfg(target_os = "macos")]
+    match dg_gpu::IOSurfaceBridge::create(w, h) {
+        Ok(bridge) => handler.set_io_surface_bridge(bridge),
+        Err(e) => {
+            eprintln!("resize: bridge recreate failed: {} — keeping old bridge", e);
+            return;
+        }
+    }
+
+    handler.set_size(w, h);
+
+    if let Ok(mut writer) = handler.writer().lock() {
+        writer.set_dimensions(w, h);
+    }
+
+    host.was_resized();
 }
 
 fn main() -> Result<()> {
@@ -229,12 +263,12 @@ fn main() -> Result<()> {
     // --- Shared memory (4096 bytes: 128-byte header + input ring) ---
     let shm_path = shm_path_for_session(session_id);
     eprintln!(
-        "creating shm {} ({}x{} + input ring)",
+        "creating shm {} ({}x{} initial + input ring)",
         shm_path.display(),
-        VIEWPORT_WIDTH,
-        VIEWPORT_HEIGHT
+        INITIAL_WIDTH,
+        INITIAL_HEIGHT
     );
-    let writer = ShmWriter::create(&shm_path, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+    let writer = ShmWriter::create(&shm_path, INITIAL_WIDTH, INITIAL_HEIGHT)
         .map_err(|e| anyhow::anyhow!("ShmWriter::create failed: {e}"))?;
     // Input ring reader shares the same mmap as the writer.
     let input_ring = unsafe { dg_shm::InputRingReader::new(writer.mmap_base()) };
@@ -245,11 +279,11 @@ fn main() -> Result<()> {
     let browser_slot: BrowserSlot = Arc::new(Mutex::new(None));
 
     // --- Build CEF tree ---
-    let mut render_inner = KspRenderHandlerInner::new(writer);
+    let render_inner = KspRenderHandlerInner::new(writer);
 
     #[cfg(target_os = "macos")]
     {
-        match dg_gpu::IOSurfaceBridge::create(VIEWPORT_WIDTH, VIEWPORT_HEIGHT) {
+        match dg_gpu::IOSurfaceBridge::create(INITIAL_WIDTH, INITIAL_HEIGHT) {
             Ok(bridge) => render_inner.set_io_surface_bridge(bridge),
             Err(e) => {
                 eprintln!("canvas bridge init failed: {} — zero-copy disabled", e);
@@ -257,6 +291,11 @@ fn main() -> Result<()> {
         }
     }
 
+    // Keep a clone of the render-handler inner for the main loop so we
+    // can drive size updates + bridge swaps from the INPUT_RESIZE branch.
+    // Inner is Clone and all its mutable state lives behind Arcs, so
+    // both this handle and the CEF-owned handler observe the same state.
+    let render_inner_main = render_inner.clone();
     let render_handler = KspRenderHandlerBuilder::build(render_inner);
     let client = KspClientBuilder::build(render_handler);
     let process_inner =
@@ -297,12 +336,18 @@ fn main() -> Result<()> {
         do_message_loop_work();
 
         // Drain input events from the SHM ring buffer and inject
-        // them into CEF via BrowserHost.
+        // them into CEF via BrowserHost. Resize events need the
+        // render handler too (to swap the canvas bridge + update
+        // atomics), so they take a separate path.
         if let Ok(slot) = browser_slot.lock() {
             if let Some(ref browser) = *slot {
                 if let Some(host) = browser.host() {
                     input_ring.drain(|evt| {
-                        inject_input_event(&host, evt);
+                        if evt.kind == dg_shm::layout::INPUT_RESIZE {
+                            handle_resize(&render_inner_main, &host, evt);
+                        } else {
+                            inject_input_event(&host, evt);
+                        }
                     });
                 }
             }

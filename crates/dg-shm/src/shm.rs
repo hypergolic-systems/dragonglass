@@ -136,6 +136,38 @@ impl ShmWriter {
         self.base
     }
 
+    /// Publish a new viewport size for the current surface. Takes the
+    /// seqlock so a concurrent reader that picks up `seq` mid-write
+    /// bails out. The fields updated here are read at file-open time
+    /// by the plugin (via `ShmReader`); the plugin discovers live
+    /// changes through the IOSurface's own dimensions, not this
+    /// header, so `set_dimensions` is mostly for external observers
+    /// and keeps the published metadata honest after a resize.
+    pub fn set_dimensions(&mut self, width: u32, height: u32) {
+        let stride = width.saturating_mul(4);
+        let base = self.base;
+
+        unsafe {
+            let seq = AtomicU64::from_ptr(base.add(OFF_SEQ) as *mut u64);
+            seq.fetch_add(1, Ordering::AcqRel);
+        }
+        std::sync::atomic::fence(Ordering::Release);
+
+        unsafe {
+            ptr::write_volatile(base.add(OFF_WIDTH) as *mut u32, width);
+            ptr::write_volatile(base.add(OFF_HEIGHT) as *mut u32, height);
+            ptr::write_volatile(base.add(OFF_STRIDE) as *mut u32, stride);
+        }
+
+        unsafe {
+            let seq = AtomicU64::from_ptr(base.add(OFF_SEQ) as *mut u64);
+            seq.fetch_add(1, Ordering::Release);
+        }
+
+        self.width = width;
+        self.height = height;
+    }
+
     /// Commit a frame whose pixels live outside the shm (IOSurface
     /// referenced by `io_surface_id`). The header advances `seq` +
     /// `frame_id` so readers can detect a new frame.

@@ -86,6 +86,10 @@ pub const INPUT_MOUSE_MOVE: u8 = 1;
 pub const INPUT_MOUSE_DOWN: u8 = 2;
 pub const INPUT_MOUSE_UP: u8 = 3;
 pub const INPUT_MOUSE_WHEEL: u8 = 4;
+/// Plugin is asking the sidecar to resize its CEF viewport + backing
+/// IOSurface. `x` carries the new width, `y` the new height (both
+/// positive `i32` pixel counts). Button stays `INPUT_BTN_NONE`.
+pub const INPUT_RESIZE: u8 = 5;
 
 // --- Input button codes (u8) ---
 pub const INPUT_BTN_NONE: u8 = 0;

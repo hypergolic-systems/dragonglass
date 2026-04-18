@@ -640,6 +640,42 @@ DgHudNative_GetLastError(char* buf, int buf_len)
     buf[buf_len - 1] = '\0';
 }
 
+/// Return the dimensions of the IOSurface wrapping the given
+/// IOSurfaceID. The plugin uses this after a `(id, gen)` roll to
+/// decide whether the sidecar has resized — if the source dims don't
+/// match the currently-bound destination texture, the plugin tears
+/// down + recreates its Texture2D before re-binding via
+/// `DgHudNative_SetTargetTexture`.
+///
+/// First tries the GL cache (cheap — we already have the dims there
+/// from the last `gl_get_or_create_rect_tex`). Falls back to
+/// `IOSurfaceLookup` + `IOSurfaceGetWidth/Height` when the surface
+/// hasn't been wrapped yet (typically the first query after a
+/// resize).
+///
+/// Returns 1 on success, 0 on failure (id=0, lookup miss, or null
+/// output pointers).
+extern "C" UNITY_INTERFACE_EXPORT int
+DgHudNative_GetSourceSize(uint32_t io_surface_id, uint32_t* out_w, uint32_t* out_h)
+{
+    if (!out_w || !out_h || io_surface_id == 0) return 0;
+    {
+        std::lock_guard<std::mutex> lock(g_gl_cache_mu);
+        auto it = g_gl_cache.find(io_surface_id);
+        if (it != g_gl_cache.end()) {
+            *out_w = it->second.width;
+            *out_h = it->second.height;
+            return 1;
+        }
+    }
+    IOSurfaceRef surface = IOSurfaceLookup((IOSurfaceID)io_surface_id);
+    if (!surface) return 0;
+    *out_w = (uint32_t)IOSurfaceGetWidth(surface);
+    *out_h = (uint32_t)IOSurfaceGetHeight(surface);
+    CFRelease(surface);
+    return 1;
+}
+
 /// Detailed error breakdown so C# can tell which branch is failing
 /// without relying on native stderr output (which Unity does not
 /// capture on macOS in our deployment).

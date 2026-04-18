@@ -52,6 +52,15 @@ namespace Dragonglass.Hud
         public static extern void DgHudNative_SetTargetTexture(
             IntPtr nativeTex, int width, int height);
 
+        /// <summary>Query the dimensions of the source IOSurface the
+        /// plugin would blit from if it received <paramref name="ioSurfaceId"/>.
+        /// Used after a generation roll to detect a sidecar resize before
+        /// rebinding the destination texture. Returns 1 on success, 0 on
+        /// miss (id=0 or surface no longer exists).</summary>
+        [DllImport(Lib)]
+        public static extern int DgHudNative_GetSourceSize(
+            uint ioSurfaceId, out uint width, out uint height);
+
         /// <summary>Publish the latest (IOSurfaceID, generation) pair.
         /// Cheap atomic store; real work happens inside the render event.</summary>
         [DllImport(Lib)]
