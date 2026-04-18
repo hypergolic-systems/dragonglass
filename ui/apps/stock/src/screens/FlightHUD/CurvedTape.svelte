@@ -33,30 +33,8 @@
   let panelPath = $derived(isLeft ? PANEL_PATH_LEFT : PANEL_PATH_RIGHT);
   let clipId = $derived(`curved-tape-clip-${side}`);
 
-  let clamped = $derived(Math.max(0, Math.min(scale.max, value)));
-  let cursorArc = $derived(scale.posDeg(clamped));
-
-  let visible = $derived.by(() => {
-    const result: {
-      value: number;
-      major: boolean;
-      deltaDeg: number;
-      label: string;
-    }[] = [];
-    for (const grid of scale.tickGrids) {
-      for (let v = grid.minV; v < grid.maxV; v += grid.minorStep) {
-        const deltaDeg = scale.posDeg(v) - cursorArc;
-        if (Math.abs(deltaDeg) > CURVED_VISIBLE_HALF_ARC) continue;
-        result.push({
-          value: v,
-          major: v % grid.majorStep === 0,
-          deltaDeg,
-          label: grid.formatLabel(v),
-        });
-      }
-    }
-    return result;
-  });
+  let clamped = $derived(Math.max(0, value));
+  let visible = $derived(scale.visibleTicks(clamped, CURVED_VISIBLE_HALF_ARC));
 
   let formatted = $derived(formatReadout(clamped));
   let half = CURVED_TAPE_SIZE / 2;
