@@ -4,6 +4,14 @@
 
 ![Dragonglass navball composited over the KSP Flight scene](docs/images/navball.png)
 
+## Why web UI for KSP?
+
+KSP is built on a 2019-era Unity runtime, and it is no longer actively developed. Mods that want to build in-game UI are stuck with Unity IMGUI or the legacy uGUI Canvas: no flex or grid layout, no hot reload, no component model worth the name, no browser devtools, no npm ecosystem. Instrument panels that take a weekend in Svelte take months in Unity, and the tooling gap grows every year as the web stack moves and KSP's Unity doesn't.
+
+Dragonglass treats the HUD as a web app. The UI is built in Svelte and TypeScript with CSS grid and any library off npm, developed with hot reload in a normal browser, and shipped to the game untouched. Chromium (via CEF) renders it in a sidecar process and hands KSP the finished frame as a shared GPU texture — so the runtime Unity never sees is also the runtime it never has to host. A secondary benefit falls out for free: the same UI code and telemetry stream can drive out-of-game surfaces like OBS overlays, second-screen MFDs, and mission-control dashboards.
+
+The same separation pays off during development. Because the UI talks to KSP over a WebSocket (Dragonglass_Telemetry), the whole UI stack can run in a normal browser outside KSP — pulling live data from the running game — so component work, layout iteration, and state debugging happen with standard browser devtools and no KSP relaunch in the loop. Pointing the CEF sidecar at a Vite dev server URL instead of the packaged UI directory extends the same loop *inside the game*: save a Svelte file and the HUD re-renders in the Flight scene via HMR, no restart needed.
+
 A pair of KSP mods for modern flight instrumentation:
 
 - **Dragonglass_Hud** — overlays a web-based flight UI on top of the KSP Flight scene, rendered in [CEF](https://bitbucket.org/chromiumembedded/cef/) (Chromium Embedded Framework) and composited via a zero-copy shared GPU texture.
