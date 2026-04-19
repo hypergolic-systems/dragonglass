@@ -15,20 +15,9 @@
   // toggle). Reading fields off the reactive `s` proxy inside $derived
   // makes the tape re-render only when the vector actually changes.
   const surfaceSpeed = $derived(s.surfaceVelocity.length());
-
-  let clickCount = $state(0);
 </script>
 
 <div class="hud hud--navball-only">
-  <!-- Temporary: input test button. Remove after verifying SHM input pipeline. -->
-  <button
-    class="input-test"
-    class:input-test--clicked={clickCount > 0}
-    onclick={() => clickCount++}
-  >
-    {clickCount === 0 ? 'CLICK ME' : `CLICKED ×${clickCount}`}
-  </button>
-
   <div class="navslot navslot--bottom-left">
     <Navball />
     <CurvedTape
