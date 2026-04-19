@@ -39,3 +39,8 @@ THIRD_PARTY_NOTICES_RUST
 
 # Logs
 *.log
+
+# Firebase (hosting deploy state — not part of the source tree)
+.firebase/
+.firebaserc
+firebase.json
