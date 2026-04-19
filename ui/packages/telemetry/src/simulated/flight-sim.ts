@@ -1,9 +1,15 @@
-// Pure TS — no Svelte runes. Mutates a pre-allocated FlightData
-// (plus its nested Quaternion / Vector3) each frame to avoid GC
-// pressure at 60fps.
+// Pure TS — no Svelte runes. Owns the sim's private mutable state
+// (orientation quaternion, angular-velocity accumulator, elapsed
+// time) and emits a **fresh** `FlightData` each tick. Emitting a
+// new frame every frame is deliberate: `FlightData` is readonly
+// and reactivity downstream depends on reference changes for
+// nested Vector3 / Quaternion fields — in-place mutation on a
+// class instance bypasses Svelte's `$state` proxy. Allocation
+// cost at 60 fps is negligible.
 
 import { Quaternion, Vector3 } from 'three';
 import type { FlightData } from '../core/flight-data';
+import { ENGINES_MAX_THRUST } from './engines-fixture';
 
 const TORQUE = (35 * Math.PI) / 180;
 
@@ -42,48 +48,41 @@ function simulateLaunch(t: number): {
 }
 
 /**
- * Owns the simulation state and advances it each tick.
- * Framework-agnostic — call `tick(dt)` from any loop (rAF, setInterval, etc.)
- * and read `data` for the latest frame.
+ * Owns the simulation state and advances it each tick. Framework-
+ * agnostic — call `tick(dt)` from any loop (rAF, setInterval, etc.)
+ * and it returns a fresh immutable `FlightData` for the current
+ * frame. The sim's own internal state (orientation, angular
+ * velocity, elapsed time) stays mutable behind the class boundary.
  */
 export class FlightSimulation {
-  readonly data: FlightData;
-
   readonly keys = new Set<string>();
   resetPending = false;
 
   private t = 0;
+  private throttle = 2 / 3;
+  private sas = false;
+  private rcs = false;
   private readonly angVel = { x: 0, y: 0, z: 0 };
+  private readonly orientation = new Quaternion();
+
+  // Transient scratch objects used inside `tick` to avoid
+  // allocating them on every frame. Their values are copied into
+  // the fresh frame's own Vector3 / Quaternion instances before
+  // the frame is emitted, so the sim's internal references are
+  // never exposed to subscribers.
   private readonly dq = new Quaternion();
   private readonly axis = new Vector3();
 
-  constructor() {
-    this.data = {
-      vesselId: 'sim-vessel',
-      altitudeAsl: 0,
-      altitudeRadar: 0,
-      surfaceVelocity: new Vector3(),
-      orbitalVelocity: new Vector3(),
-      throttle: 1,
-      sas: false,
-      rcs: false,
-      orientation: new Quaternion(),
-      angularVelocity: new Vector3(),
-      hasTarget: false,
-      targetVelocity: new Vector3(),
-    };
-  }
-
   setSas(enabled: boolean): void {
-    this.data.sas = enabled;
+    this.sas = enabled;
   }
 
   setRcs(enabled: boolean): void {
-    this.data.rcs = enabled;
+    this.rcs = enabled;
   }
 
-  tick(dt: number): void {
-    const { keys, angVel, dq, axis, data } = this;
+  tick(dt: number): FlightData {
+    const { keys, angVel, dq, axis } = this;
 
     if (this.resetPending) {
       angVel.x = 0;
@@ -103,21 +102,32 @@ export class FlightSimulation {
     if (omega > 1e-9) {
       axis.set(angVel.x / omega, angVel.y / omega, angVel.z / omega);
       dq.setFromAxisAngle(axis, omega * dt);
-      data.orientation.multiply(dq).normalize();
+      this.orientation.multiply(dq).normalize();
     }
-
-    data.angularVelocity.set(angVel.x, angVel.y, angVel.z);
 
     this.t += dt;
     const launch = simulateLaunch(this.t);
-    data.altitudeAsl = launch.altitude;
-    data.altitudeRadar = launch.altitude;
 
     // Sim vessel ascends straight up with a bit of eastward drift so
     // orbital + surface velocities read plausibly. Both vectors in the
     // surface frame: +X = east, +Y = up, +Z = north.
     const eastwardDrift = Math.min(launch.speed * 0.15, 50);
-    data.surfaceVelocity.set(eastwardDrift, launch.verticalSpeed, 0);
-    data.orbitalVelocity.set(eastwardDrift + 175, launch.verticalSpeed, 0);
+
+    return {
+      vesselId: 'sim-vessel',
+      altitudeAsl: launch.altitude,
+      altitudeRadar: launch.altitude,
+      surfaceVelocity: new Vector3(eastwardDrift, launch.verticalSpeed, 0),
+      orbitalVelocity: new Vector3(eastwardDrift + 175, launch.verticalSpeed, 0),
+      throttle: this.throttle,
+      sas: this.sas,
+      rcs: this.rcs,
+      orientation: this.orientation.clone(),
+      angularVelocity: new Vector3(angVel.x, angVel.y, angVel.z),
+      hasTarget: false,
+      targetVelocity: new Vector3(),
+      deltaVMission: 3800,
+      currentThrust: this.throttle * ENGINES_MAX_THRUST,
+    };
   }
 }

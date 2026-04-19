@@ -13,27 +13,39 @@ import type { Quaternion, Vector3 } from 'three';
  * are full 3D vectors — magnitude gives speed, direction places
  * prograde/retrograde markers on the navball.
  */
+/**
+ * Frames are `readonly` on every field. The telemetry pipeline
+ * must publish a fresh frame per tick (new scalars, new Vector3 /
+ * Quaternion references) rather than mutating a scratch object in
+ * place — in-place mutation on nested class instances (Vector3,
+ * Quaternion) bypasses Svelte's `$state` proxy and breaks downstream
+ * reactivity. The type system is the enforcement mechanism; there
+ * is no runtime defensive cloning.
+ */
 export interface FlightData {
-  vesselId: string;
-  altitudeAsl: number;        // meters above sea level
-  altitudeRadar: number;      // meters above terrain
-  surfaceVelocity: Vector3;   // m/s, surface frame
-  orbitalVelocity: Vector3;   // m/s, surface frame
-  throttle: number;           // [0, 1]
-  sas: boolean;
-  rcs: boolean;
-  orientation: Quaternion;
-  angularVelocity: Vector3;   // rad/s, body frame
-  hasTarget: boolean;
+  readonly vesselId: string;
+  readonly altitudeAsl: number;        // meters above sea level
+  readonly altitudeRadar: number;      // meters above terrain
+  readonly surfaceVelocity: Vector3;   // m/s, surface frame
+  readonly orbitalVelocity: Vector3;   // m/s, surface frame
+  readonly throttle: number;           // [0, 1]
+  readonly sas: boolean;
+  readonly rcs: boolean;
+  readonly orientation: Quaternion;
+  readonly angularVelocity: Vector3;   // rad/s, body frame
+  readonly hasTarget: boolean;
   /**
    * Target-relative orbital velocity in the surface frame, m/s.
    * Mirrors stock KSP's
    * `ship_tgtVelocity = ship_obtVelocity − target.GetObtVelocity()`.
    * Only meaningful when `hasTarget` is true; drives the navball's
-   * target-prograde / target-retrograde markers. Kept as a stable
-   * `Vector3` reference (zeroed when no target) to match the
-   * pre-allocated in-place-copy pattern used for every other vector
-   * on `FlightData`.
+   * target-prograde / target-retrograde markers.
    */
-  targetVelocity: Vector3;
+  readonly targetVelocity: Vector3;
+  /** Total mission remaining Δv, m/s, atmosphere-corrected across all
+   *  remaining stages. 0 when KSP's stage simulator hasn't produced a
+   *  result yet. */
+  readonly deltaVMission: number;
+  /** Summed instantaneous engine thrust on the active vessel, kN. */
+  readonly currentThrust: number;
 }

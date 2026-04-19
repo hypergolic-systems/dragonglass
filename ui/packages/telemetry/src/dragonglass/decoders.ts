@@ -14,6 +14,8 @@ import { Quaternion, Vector3 } from 'three';
 import type { ClockData } from '../core/clock-data';
 import type { GameData } from '../core/game-data';
 import type { FlightData } from '../core/flight-data';
+import type { EngineData, EngineStatus } from '../core/engine-data';
+import type { CurrentStageData } from '../core/current-stage-data';
 
 type ClockWire = [number, number | null];
 type GameWire = [string, string | null, number];
@@ -29,6 +31,8 @@ type FlightWire = [
   [number, number, number, number],    // orientation quat (x, y, z, w)
   [number, number, number],            // angular velocity
   [number, number, number] | null,     // target-relative velocity, null if no target
+  number,                              // deltaVMission (m/s)
+  number,                              // currentThrust (kN)
 ];
 
 const clockScratch: ClockData = { ut: 0, met: null };
@@ -52,6 +56,8 @@ const flightScratch: FlightData = {
   angularVelocity: new Vector3(),
   hasTarget: false,
   targetVelocity: new Vector3(),
+  deltaVMission: 0,
+  currentThrust: 0,
 };
 
 export function decodeClock(raw: unknown): ClockData {
@@ -93,5 +99,88 @@ export function decodeFlight(raw: unknown): FlightData {
     flightScratch.hasTarget = true;
     flightScratch.targetVelocity.set(vt[0], vt[1], vt[2]);
   }
+  flightScratch.deltaVMission = a[11];
+  flightScratch.currentThrust = a[12];
   return flightScratch;
+}
+
+// Engine topic. Wire: [vesselId, [ [id, mapX, mapY, status, maxThrust], ... ]]
+// Status byte 0=burning, 1=flameout, 2=failed, 3=shutdown — mirror of
+// EngineTopic.Classify on the KSP side.
+type EngineWire = [
+  string,                                                        // vesselId
+  Array<[string, number, number, 0 | 1 | 2 | 3, number]>,        // engines
+];
+
+const ENGINE_STATUS: readonly EngineStatus[] = [
+  'burning',
+  'flameout',
+  'failed',
+  'shutdown',
+];
+
+// Engines array gets replaced wholesale each frame so consumers'
+// `$derived` (and any engine-map layout recompute) re-runs on
+// material change. Keep the `EngineData` envelope itself as a
+// scratch singleton, consistent with the other decoders.
+const engineScratch: EngineData = {
+  vesselId: '',
+  engines: [],
+};
+
+export function decodeEngines(raw: unknown): EngineData {
+  const a = raw as EngineWire;
+  engineScratch.vesselId = a[0];
+  const src = a[1];
+  const out = new Array(src.length);
+  for (let i = 0; i < src.length; i++) {
+    const e = src[i];
+    out[i] = {
+      id: e[0],
+      x: e[1],
+      y: e[2],
+      status: ENGINE_STATUS[e[3]],
+      maxThrust: e[4],
+    };
+  }
+  engineScratch.engines = out;
+  return engineScratch;
+}
+
+// Current-stage topic. Wire:
+//   [stageIdx, deltaVStage, twrStage,
+//    [ [ [engineId, ...], [[resName, avail, cap], ...] ], ... ]]
+type CurrentStageWire = [
+  number,
+  number,
+  number,
+  Array<[string[], Array<[string, number, number]>]>,
+];
+
+const currentStageScratch: CurrentStageData = {
+  stageIdx: 0,
+  deltaVStage: 0,
+  twrStage: 0,
+  groups: [],
+};
+
+export function decodeCurrentStage(raw: unknown): CurrentStageData {
+  const a = raw as CurrentStageWire;
+  currentStageScratch.stageIdx = a[0];
+  currentStageScratch.deltaVStage = a[1];
+  currentStageScratch.twrStage = a[2];
+  const srcGroups = a[3];
+  const outGroups = new Array(srcGroups.length);
+  for (let i = 0; i < srcGroups.length; i++) {
+    const g = srcGroups[i];
+    const propsRaw = g[1];
+    const props = new Array(propsRaw.length);
+    for (let j = 0; j < propsRaw.length; j++) {
+      const p = propsRaw[j];
+      props[j] = { resourceName: p[0], available: p[1], capacity: p[2] };
+    }
+    outGroups[i] = { engineIds: g[0], propellants: props };
+  }
+  currentStageScratch.groups = outGroups;
+  return currentStageScratch;
 }

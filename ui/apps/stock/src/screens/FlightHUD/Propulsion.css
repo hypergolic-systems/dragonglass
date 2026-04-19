@@ -1,0 +1,380 @@
+/* =========================================================
+   Propulsion — left-staging-stack panel.
+   Target: ≈ 120 wide, tall enough for three compact readouts
+   plus a square engine-map that fills the remaining width.
+   ========================================================= */
+
+.prop {
+  width: 120px;
+  padding: 7px 8px 8px;
+  background: var(--bg-panel-strong);
+  border: 1px solid var(--line-accent);
+  box-shadow:
+    0 0 22px rgba(126, 245, 184, 0.06),
+    inset 0 0 0 1px rgba(126, 245, 184, 0.04);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  animation: panelIn 0.8s cubic-bezier(0.2, 0.8, 0.25, 1) backwards;
+  animation-delay: 0.42s;
+}
+
+/* -----------------------------------------------------------
+   Stat rows — one-line register format
+   LABEL ........................ 1234 unit
+   ----------------------------------------------------------- */
+
+.prop__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prop__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 0;
+  min-height: 13px;
+}
+
+.prop__label {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.18em;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  font-weight: 500;
+  flex: 0 0 auto;
+}
+
+.prop__value {
+  display: inline-flex;
+  /* `last baseline` so a multi-line inline-block child (the
+     stacked-fraction unit) aligns by the baseline of its *last*
+     line ("s") — which matches the single-line number's
+     baseline. Default `baseline` picks the first line ("m")
+     and leaves "s" hanging below the number. */
+  align-items: last baseline;
+  gap: 3px;
+  line-height: 1;
+}
+
+.prop__num {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  text-shadow: 0 0 8px var(--accent-glow);
+  transition: color 280ms ease, text-shadow 280ms ease;
+}
+
+.prop__num--null {
+  color: var(--fg-dim);
+  text-shadow: none;
+}
+
+.prop__unit {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  color: var(--fg-dim);
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+  line-height: 1;
+}
+
+/* -----------------------------------------------------------
+   Throttle arc — wraps the engine rosette
+   ----------------------------------------------------------- */
+
+/* Four segments of muted track behind the fill. Flat line caps so
+   the angular gaps between segments stay crisp — round caps would
+   reach into the gap and visually close it. Track colour is one
+   step brighter than `--line` so an empty gauge still reads as a
+   ring rather than vanishing into the panel backdrop. */
+.prop__throttle-track {
+  fill: none;
+  stroke: var(--line-bright);
+  stroke-width: 0.04;
+  stroke-linecap: butt;
+}
+
+/* Info-blue for the throttle — a commanded/pilot-input colour
+   that sits apart from the teal telemetry family (engines, ΔV,
+   fuel levels) so the arc and readout don't blend into the
+   rosette. SAS also uses info-blue, but on the navball wedge:
+   different panel, different shape — no confusion. */
+.prop__throttle-fill {
+  fill: none;
+  stroke: var(--info);
+  stroke-width: 0.04;
+  stroke-linecap: butt;
+  filter: drop-shadow(0 0 2px var(--info-glow));
+  /* Animate d changes lightly so mid-segment throttle jitter
+     doesn't chatter. (`d` transitions are supported in modern
+     browsers; where unsupported the update just snaps.) */
+  transition: d 120ms linear;
+}
+
+/* Numeric readout centered in the open gap below the arc.
+   Sizes are expressed in viewBox user units — `px` inside an
+   SVG with a viewBox resolves to user units, not CSS pixels. At
+   the panel's ~100-px render size, 1 user unit ≈ 50 CSS px, so
+   font-size 0.22 ≈ 11 CSS px. */
+.prop__throttle-num {
+  font-family: var(--font-display);
+  font-size: 0.22px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  fill: var(--info);
+  text-shadow: 0 0 0.12px var(--info-glow);
+}
+
+.prop__throttle-num-unit {
+  font-family: var(--font-mono);
+  font-size: 0.14px;
+  letter-spacing: 0.14em;
+  fill: var(--fg-dim);
+}
+
+/* -----------------------------------------------------------
+   Fuel-group rows — icon + unified-or-split gauges
+   ----------------------------------------------------------- */
+
+.prop__fuel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.prop__fuel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prop__fuel-gauges {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.prop__fuel-gauge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  /* Tall enough to fit the 13-px percent overlay centred on the
+     4-px bar with a small margin. The percent spans vertically
+     past the bar itself rather than being squeezed inside it. */
+  min-height: 15px;
+  /* Per-gauge colour driven by state. Child elements (bar fill,
+     percent overlay) read these vars so one set of swaps recolours
+     the whole gauge. Transitions on the bar's colour and glow pick
+     up these swaps smoothly at threshold crossings. */
+  --gauge-color: var(--accent);
+  --gauge-glow: var(--accent-glow);
+}
+
+.prop__fuel-gauge--warn {
+  --gauge-color: var(--warn);
+  --gauge-glow: var(--warn-glow);
+}
+
+.prop__fuel-gauge--alert {
+  --gauge-color: var(--alert);
+  --gauge-glow: rgba(255, 82, 82, 0.45);
+}
+
+.prop__fuel-label {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  font-weight: 500;
+  /* Fixed label column so bars align across propellants in a
+     split gauge (LF / OX stack vertically). */
+  width: 22px;
+  flex: 0 0 22px;
+  text-align: left;
+}
+
+.prop__fuel-bar {
+  position: relative;
+  flex: 1 1 auto;
+  height: 4px;
+  background: rgba(46, 106, 85, 0.2);
+  border: 1px solid var(--line);
+  /* `overflow: visible` so the percent-readout overlay can extend
+     above and below the 4-px bar as a badge. The fill is already
+     bounded by `width: var(--pct)` on its absolute element, so no
+     clip is needed to contain it. */
+  overflow: visible;
+}
+
+.prop__fuel-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--pct, 0%);
+  background: var(--gauge-color);
+  box-shadow: 0 0 5px var(--gauge-glow);
+  transition:
+    width 240ms ease,
+    background 300ms ease,
+    box-shadow 300ms ease;
+}
+
+/* Percentage readout overlaid over the right end of the bar,
+   shown only when the gauge is in warn/alert. The number echoes
+   the bar's state colour so the same visual severity cue lands
+   in two places. The text is large enough to spill above and
+   below the 4-px bar — it reads as a badge sitting *over* the
+   bar, not a label tucked inside it. `overflow: visible` on the
+   bar (default) lets the glyphs escape. */
+.prop__fuel-bar-pct {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--gauge-color);
+  text-shadow: 0 0 4px var(--gauge-glow);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* -----------------------------------------------------------
+   Engine map — orthographic rosette
+   ----------------------------------------------------------- */
+
+.prop__map {
+  margin: 7px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.prop__map-svg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: visible;
+}
+
+.prop__map-ring {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 0.01;
+}
+
+.prop__map-ring--inner {
+  stroke-dasharray: 0.04 0.03;
+  stroke: var(--line-bright);
+  opacity: 0.45;
+}
+
+.prop__map-empty {
+  font-family: var(--font-mono);
+  font-size: 0.18px;
+  fill: var(--fg-mute);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* Engine indicator — a radio-button pair of an outer stroked ring
+   and an inner filled dot. The ring stays visible across every
+   status (it's the engine's physical footprint); the dot toggles
+   in and out to indicate whether the engine is producing thrust. */
+.prop__engine-ring {
+  fill: none;
+  stroke: var(--fg-mute);
+  stroke-width: 0.015;
+  transition:
+    stroke 280ms ease,
+    stroke-width 280ms ease,
+    filter 280ms ease,
+    opacity 280ms ease;
+}
+
+.prop__engine-dot {
+  fill: transparent;
+  opacity: 0;
+  transition:
+    fill 280ms ease,
+    opacity 280ms ease,
+    filter 280ms ease;
+}
+
+/* Burning: teal ring + teal dot with a phased breathing glow on the
+   dot only — the glow reads as the plume concentrated at the bell's
+   center, not a halo around the whole footprint. */
+.prop__engine--burning .prop__engine-ring {
+  stroke: var(--accent);
+  stroke-width: 0.018;
+}
+
+.prop__engine--burning .prop__engine-dot {
+  fill: var(--accent);
+  opacity: 1;
+  filter: drop-shadow(0 0 2px var(--accent-glow));
+  animation: engineBreathe 2.4s ease-in-out infinite;
+  /* Per-engine phase offset inherited via the group's --i so a
+     cluster breathes in rolling waves instead of lockstep.
+     Negative delay starts mid-cycle rather than queuing a full
+     period per circle. */
+  animation-delay: calc(var(--i, 0) * -180ms);
+}
+
+/* Flameout: outlined amber ring, no dot — the unlit radio-button
+   form in a warning colour. */
+.prop__engine--flameout .prop__engine-ring {
+  stroke: var(--warn);
+  stroke-width: 0.025;
+  filter: drop-shadow(0 0 1.8px rgba(240, 180, 41, 0.25));
+}
+
+/* Failed: red ring + red dot, the whole group pulsing. */
+.prop__engine--failed {
+  animation: engineFault 1.2s ease-in-out infinite;
+}
+
+.prop__engine--failed .prop__engine-ring {
+  stroke: var(--alert);
+  stroke-width: 0.02;
+  filter: drop-shadow(0 0 2px rgba(255, 82, 82, 0.4));
+}
+
+.prop__engine--failed .prop__engine-dot {
+  fill: var(--alert);
+  opacity: 1;
+}
+
+/* Shutdown: thin muted ring, no dot. */
+.prop__engine--shutdown .prop__engine-ring {
+  stroke: var(--fg-mute);
+  stroke-width: 0.018;
+  opacity: 0.75;
+}
+
+@keyframes engineBreathe {
+  0%, 100% { filter: drop-shadow(0 0 1.2px rgba(126, 245, 184, 0.3)); }
+  50%      { filter: drop-shadow(0 0 3.5px rgba(126, 245, 184, 0.75)); }
+}
+
+@keyframes engineFault {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}

@@ -16,7 +16,13 @@
 // defaults until the next server push.
 
 import type { Ksp, Topic, OpArgs } from '../core/ksp';
-import { decodeClock, decodeGame, decodeFlight } from './decoders';
+import {
+  decodeClock,
+  decodeGame,
+  decodeFlight,
+  decodeEngines,
+  decodeCurrentStage,
+} from './decoders';
 
 const RECONNECT_DELAY_MS = 1000;
 
@@ -30,6 +36,8 @@ export class DragonglassTelemetry implements Ksp {
     clock: decodeClock,
     game: decodeGame,
     flight: decodeFlight,
+    engines: decodeEngines,
+    currentStage: decodeCurrentStage,
   };
   private readonly lastByTopic = new Map<string, unknown>();
 

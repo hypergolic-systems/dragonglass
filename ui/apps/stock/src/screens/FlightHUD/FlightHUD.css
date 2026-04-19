@@ -39,15 +39,53 @@
   z-index: 15;
   animation: panelIn 0.8s cubic-bezier(0.2, 0.8, 0.25, 1) backwards;
   animation-delay: 0.34s;
-  --nav-inset: 72px;
+  --nav-inset: 12px;
   display: flex;
-  align-items: center;
+  /* Anchor the staging stack and the navball cluster to a common
+     bottom edge so the row reads as a single horizontal baseline
+     regardless of how tall the stack grows as it accumulates
+     future engine/staging panels. */
+  align-items: flex-end;
   gap: 20px;
 }
 
 .navslot--bottom-left {
   bottom: var(--nav-inset);
   left: var(--nav-inset);
+}
+
+/* Left-side column of staging / engine / propulsion displays. Uses
+   column-reverse so the DOM-first child (Propulsion, today) sits at
+   the bottom, and future panels appended later in source order
+   stack upward above it without any per-item positioning logic. */
+.staging-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 12px;
+  align-items: stretch;
+}
+
+/* Explicit 488×488 container for the navball + its absolute-
+   positioned SVG overlays (tapes, SAS/RCS wedges). The overlays
+   fill this box via `top/left: 0`; the fixed size is what the
+   parent flex row measures for layout.
+
+   The translateY offsets the cluster down so the **tape wedges'**
+   bottom edge lands on the same horizontal line as the staging
+   stack's bottom. The tape panels span 48° either side of
+   horizontal at outer radius 212, so their lowest point is at
+   stage-local y = 212·sin(228°) ≈ 157.6 from the stage's centre,
+   i.e. 488/2 − (488/2 + 157.6) = 86.4px of dead space below the
+   tape bottom in the 488-tall box. The sphere itself only reaches
+   130px below centre, so it naturally sits slightly above the
+   tape bottom in this alignment — which matches how the tapes
+   read as the navball's visual lower extent. */
+.navball-cluster {
+  position: relative;
+  width: 488px;
+  height: 488px;
+  flex: 0 0 auto;
+  transform: translateY(86px);
 }
 
 /* ---------- Curved tape instrument ---------- */

@@ -32,25 +32,31 @@
 //
 // Wire format (positional array):
 //   data: [vesselId, altAsl, altRadar, [vSurf...], [vOrb...],
-//          throttle, sas, rcs, [qx,qy,qz,qw], [wx,wy,wz], vTgt?]
+//          throttle, sas, rcs, [qx,qy,qz,qw], [wx,wy,wz], vTgt?,
+//          deltaVMission, currentThrust]
 //
-//     vesselId   : string GUID of the active vessel
-//     altAsl     : altitude above sea level (meters)
-//     altRadar   : altitude above terrain (meters)
-//     [vSurf...] : surface velocity vector in surface frame, m/s
-//                  (relative to the rotating planet surface)
-//     [vOrb...]  : orbital velocity vector in surface frame, m/s
-//                  (relative to the planet's inertial frame)
-//     throttle   : main-engine throttle [0, 1]
-//     sas        : SAS action group state
-//     rcs        : RCS action group state
-//     [q...]     : vessel orientation in surface frame (body-wire
-//                  basis: +Z = nose, +Y = dorsal, +X = starboard)
-//     [w...]     : angular velocity in vessel body frame, rad/s
-//     vTgt?      : target-relative orbital velocity vector in surface
-//                  frame, m/s, or null when no target is set.
-//                  Matches stock KSP:
-//                  `vessel.obt_velocity - target.GetObtVelocity()`.
+//     vesselId      : string GUID of the active vessel
+//     altAsl        : altitude above sea level (meters)
+//     altRadar      : altitude above terrain (meters)
+//     [vSurf...]    : surface velocity vector in surface frame, m/s
+//                     (relative to the rotating planet surface)
+//     [vOrb...]     : orbital velocity vector in surface frame, m/s
+//                     (relative to the planet's inertial frame)
+//     throttle      : main-engine throttle [0, 1]
+//     sas           : SAS action group state
+//     rcs           : RCS action group state
+//     [q...]        : vessel orientation in surface frame (body-wire
+//                     basis: +Z = nose, +Y = dorsal, +X = starboard)
+//     [w...]        : angular velocity in vessel body frame, rad/s
+//     vTgt?         : target-relative orbital velocity vector in surface
+//                     frame, m/s, or null when no target is set.
+//                     Matches stock KSP:
+//                     `vessel.obt_velocity - target.GetObtVelocity()`.
+//     deltaVMission : total mission remaining Δv (m/s, atmosphere-corrected,
+//                     sums all remaining stages). 0 when VesselDeltaV has
+//                     not yet run or returns no result.
+//     currentThrust : sum of instantaneous thrust across all engines on
+//                     the active vessel, in kN (ModuleEngines.finalThrust).
 
 using System.Collections.Generic;
 using System.Text;
@@ -146,6 +152,20 @@ namespace Dragonglass.Telemetry.Topics
             set { if (_targetVelocity != value) { _targetVelocity = value; MarkDirty(); } }
         }
 
+        private double _deltaVMission;
+        public double DeltaVMission
+        {
+            get { return _deltaVMission; }
+            set { if (_deltaVMission != value) { _deltaVMission = value; MarkDirty(); } }
+        }
+
+        private float _currentThrust;
+        public float CurrentThrust
+        {
+            get { return _currentThrust; }
+            set { if (_currentThrust != value) { _currentThrust = value; MarkDirty(); } }
+        }
+
         private void Update()
         {
             if (FlightGlobals.fetch == null) return;
@@ -182,6 +202,27 @@ namespace Dragonglass.Telemetry.Topics
                 HasTarget = false;
                 TargetVelocity = Vector3.zero;
             }
+
+            // Total mission remaining Δv across all staged burns,
+            // atmosphere-corrected for the vessel's current altitude.
+            // `VesselDeltaV` is lazily populated by stock KSP and may
+            // be null (e.g. just after vessel load, before the stage
+            // simulator runs) — publish 0 and let the client render
+            // "—" rather than gambling on a stale value.
+            DeltaVMission = v.VesselDeltaV != null
+                ? v.VesselDeltaV.TotalDeltaVActual
+                : 0.0;
+
+            // Summed instantaneous thrust across every engine on the
+            // active vessel, in kN. Flamed-out / shut-down engines
+            // contribute 0 via `finalThrust`, so no filtering needed.
+            float thrustSum = 0f;
+            for (int i = 0; i < v.Parts.Count; i++)
+            {
+                ModuleEngines eng = v.Parts[i].FindModuleImplementing<ModuleEngines>();
+                if (eng != null) thrustSum += eng.finalThrust;
+            }
+            CurrentThrust = thrustSum;
         }
 
         // KSP parts (including command/probe cores that drive the
@@ -289,6 +330,11 @@ namespace Dragonglass.Telemetry.Topics
 
             if (_hasTarget) WriteVec3(sb, _targetVelocity);
             else Json.WriteNull(sb);
+            sb.Append(',');
+
+            Json.WriteDouble(sb, _deltaVMission);
+            sb.Append(',');
+            Json.WriteFloat(sb, _currentThrust);
 
             sb.Append(']');
         }
