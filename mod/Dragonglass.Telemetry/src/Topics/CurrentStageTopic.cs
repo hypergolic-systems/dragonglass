@@ -62,6 +62,16 @@ namespace Dragonglass.Telemetry.Topics
         private const float TwrEpsilon = 0.005f;
         private const double FuelFractionEpsilon = 0.005;
 
+        // When two groups share the same multiset of engine types and
+        // their per-propellant stack totals (current + capacity)
+        // match within 0.1 %, they collapse into one group — e.g. two
+        // symmetric boosters on physically-separate LFO tanks that
+        // start with identical fuel loads and drain in lockstep.
+        // Without this pass they would otherwise render as two
+        // visually-redundant gauge rows that track each other
+        // exactly.
+        private const double MergeFuelThreshold = 0.001;
+
         // ---- Live state we publish ----
         private int _stageIdx = -1;
         private double _deltaVStage;
@@ -81,6 +91,25 @@ namespace Dragonglass.Telemetry.Topics
             // group's propellant set. `Sources[i]` lists every
             // PartResource in the union of tanks feeding this
             // group for propellant i.
+            public List<ResourceSourceSet> Sources;
+            // Pre-merge "components" — each one is the group that
+            // was fused into this aggregate. A group that was never
+            // merged has exactly one component (itself). A group
+            // built from N merged pre-groups has N. Per-frame drift
+            // checks compare each component's totals against the
+            // others; when any pair diverges past the threshold,
+            // the aggregate splits back into its components.
+            public List<EngineGroupComponent> Components;
+        }
+
+        // Holds one pre-merge group's own tank-set, kept around so
+        // the per-frame drift check in `TryRefreshFuelLevels` can
+        // sum each component independently and detect when symmetric
+        // stacks have started to diverge in flight.
+        private class EngineGroupComponent
+        {
+            public string SignatureKey;
+            public List<Part> Engines;
             public List<ResourceSourceSet> Sources;
         }
 
@@ -185,6 +214,14 @@ namespace Dragonglass.Telemetry.Topics
             if (_stageIdx != stageIdx) { _stageIdx = stageIdx; changed = true; }
             if (System.Math.Abs(_deltaVStage - dv) > DvEpsilon) { _deltaVStage = dv; changed = true; }
             if (Mathf.Abs(_twrStage - twr) > TwrEpsilon) { _twrStage = twr; changed = true; }
+
+            // Drift check — split any merged group whose components
+            // have diverged beyond the threshold. Only splits, never
+            // re-merges: a re-merge could only happen on the next
+            // vessel-structure event (RebuildStructure), so drift
+            // decisions are strictly monotonic within a structure
+            // epoch. That prevents threshold-boundary flicker.
+            if (SplitDriftedMergedGroups()) changed = true;
 
             // Sum per-group per-propellant from the cache. If we
             // see a stale PartResource ref, abandon summation and
@@ -360,8 +397,338 @@ namespace Dragonglass.Telemetry.Topics
                 _groups[groupIdx].Engines.Add(eng.part);
             }
 
+            // Seed each group's Components list with itself, so the
+            // per-frame drift check has the pre-merge constituents
+            // to compare. The component shares list references with
+            // the group because this group's own lists aren't
+            // mutated post-grouping — merges allocate fresh lists
+            // for the combined aggregate and leave components alone.
+            for (int i = 0; i < _groups.Count; i++)
+            {
+                EngineGroupCache gc = _groups[i];
+                gc.Components = new List<EngineGroupComponent>(1);
+                gc.Components.Add(new EngineGroupComponent
+                {
+                    SignatureKey = gc.SignatureKey,
+                    Engines = gc.Engines,
+                    Sources = gc.Sources,
+                });
+                _groups[i] = gc;
+            }
+
+            // Second pass: collapse groups that draw from *different*
+            // tank sets but are otherwise indistinguishable to the
+            // pilot — same engine types, same propellant set, and
+            // tank-stack totals matching within MergeFuelThreshold.
+            MergeEquivalentGroups();
+
             // Initialise published snapshots from fresh structure.
             for (int i = 0; i < _groups.Count; i++) _published.Add(NewPublishedGroup(_groups[i]));
+        }
+
+        // Iteratively merge compatible group pairs until no more
+        // merges are possible. The inner loop is O(N²) per pass, and
+        // this pass runs only on vessel-structure events (staging /
+        // docking / flow changes), so the cost is negligible.
+        //
+        // Merges happen only here, not per frame. The symmetric
+        // operation — unmerging when a previously-matched aggregate
+        // has drifted — runs every frame in
+        // `SplitDriftedMergedGroups`. That asymmetry is deliberate:
+        // merging at structure-rebuild time + splitting on drift
+        // together mean the grouping decision is strictly
+        // monotonic within a structure epoch (only gains splits,
+        // never loses them), so a gauge can't flicker across the
+        // threshold boundary as fuel burns.
+        private void MergeEquivalentGroups()
+        {
+            bool mergedAny = true;
+            while (mergedAny && _groups.Count > 1)
+            {
+                mergedAny = false;
+                for (int i = 0; i < _groups.Count && !mergedAny; i++)
+                {
+                    for (int j = i + 1; j < _groups.Count; j++)
+                    {
+                        if (CanMergeGroups(_groups[i], _groups[j]))
+                        {
+                            _groups[i] = MergeGroups(_groups[i], _groups[j]);
+                            _groups.RemoveAt(j);
+                            mergedAny = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        private static bool CanMergeGroups(EngineGroupCache a, EngineGroupCache b)
+        {
+            // Same multiset of engine types. Sort part names so the
+            // comparison doesn't depend on the order engines were
+            // added in.
+            if (a.Engines.Count != b.Engines.Count) return false;
+            List<string> aNames = new List<string>(a.Engines.Count);
+            List<string> bNames = new List<string>(b.Engines.Count);
+            for (int i = 0; i < a.Engines.Count; i++) aNames.Add(PartName(a.Engines[i]));
+            for (int i = 0; i < b.Engines.Count; i++) bNames.Add(PartName(b.Engines[i]));
+            aNames.Sort(System.StringComparer.Ordinal);
+            bNames.Sort(System.StringComparer.Ordinal);
+            for (int i = 0; i < aNames.Count; i++)
+            {
+                if (aNames[i] != bNames[i]) return false;
+            }
+
+            // Same propellant set. Sources lists are already sorted by
+            // resource id when constructed in RebuildStructure, so a
+            // position-by-position comparison suffices.
+            if (a.Sources.Count != b.Sources.Count) return false;
+            for (int i = 0; i < a.Sources.Count; i++)
+            {
+                if (a.Sources[i].ResourceId != b.Sources[i].ResourceId) return false;
+            }
+
+            // Tank-stack totals match within threshold — both current
+            // and capacity, per resource. The threshold is relative
+            // to the larger capacity of the pair so comparisons are
+            // invariant across absolute tank sizes.
+            for (int i = 0; i < a.Sources.Count; i++)
+            {
+                double aAmt = 0, aCap = 0;
+                for (int k = 0; k < a.Sources[i].Resources.Count; k++)
+                {
+                    PartResource pr = a.Sources[i].Resources[k];
+                    if (pr == null || pr.part == null) return false;
+                    aAmt += pr.amount;
+                    aCap += pr.maxAmount;
+                }
+                double bAmt = 0, bCap = 0;
+                for (int k = 0; k < b.Sources[i].Resources.Count; k++)
+                {
+                    PartResource pr = b.Sources[i].Resources[k];
+                    if (pr == null || pr.part == null) return false;
+                    bAmt += pr.amount;
+                    bCap += pr.maxAmount;
+                }
+                double scale = System.Math.Max(aCap, bCap);
+                if (scale <= 1e-9) continue; // both essentially empty tanks — treat as match
+                if (System.Math.Abs(aAmt - bAmt) / scale > MergeFuelThreshold) return false;
+                if (System.Math.Abs(aCap - bCap) / scale > MergeFuelThreshold) return false;
+            }
+
+            return true;
+        }
+
+        private static EngineGroupCache MergeGroups(EngineGroupCache a, EngineGroupCache b)
+        {
+            List<Part> engines = new List<Part>(a.Engines.Count + b.Engines.Count);
+            engines.AddRange(a.Engines);
+            engines.AddRange(b.Engines);
+
+            // Union each resource's tank list. Order of the Sources
+            // list is preserved (same resource-id ordering as both
+            // inputs). The summed amounts / capacities fall out
+            // naturally at read time in TryRefreshFuelLevels.
+            List<ResourceSourceSet> sources = new List<ResourceSourceSet>(a.Sources.Count);
+            for (int i = 0; i < a.Sources.Count; i++)
+            {
+                ResourceSourceSet merged;
+                merged.ResourceId = a.Sources[i].ResourceId;
+                merged.ResourceName = a.Sources[i].ResourceName;
+                merged.Resources = new List<PartResource>(
+                    a.Sources[i].Resources.Count + b.Sources[i].Resources.Count);
+                merged.Resources.AddRange(a.Sources[i].Resources);
+                merged.Resources.AddRange(b.Sources[i].Resources);
+                sources.Add(merged);
+            }
+
+            // Flatten components — the merged group's constituents
+            // are the union of both inputs' constituents. An
+            // aggregate built from three chained merges tracks all
+            // three pre-merge pieces, not just the last pair.
+            List<EngineGroupComponent> components = new List<EngineGroupComponent>(
+                a.Components.Count + b.Components.Count);
+            components.AddRange(a.Components);
+            components.AddRange(b.Components);
+
+            return new EngineGroupCache
+            {
+                SignatureKey = a.SignatureKey + "+" + b.SignatureKey,
+                Engines = engines,
+                Sources = sources,
+                Components = components,
+            };
+        }
+
+        private static string PartName(Part p)
+        {
+            if (p == null) return string.Empty;
+            return p.partInfo != null ? p.partInfo.name : p.name;
+        }
+
+        // Per-frame drift check for merged groups. For each merged
+        // aggregate (Components.Count ≥ 2), take the first component
+        // as the "norm" and compare every other component against
+        // it. Components that deviate past `MergeFuelThreshold` are
+        // kicked out as their own aggregate (one kicked group holds
+        // all kicked components together, regardless of whether they
+        // match each other — the next frame's pass decides that).
+        //
+        // Cost per frame: O(G_merged × M × P × K) where G_merged is
+        // the number of currently-merged aggregates, M is each
+        // aggregate's component count (≤ the few symmetric stacks a
+        // craft typically carries), P is propellants (1–3) and K is
+        // tanks per component. Singleton groups — the usual case —
+        // are skipped on the Count < 2 guard.
+        //
+        // Never merges: split decisions are strictly monotonic
+        // within a structure epoch (only new splits, never un-
+        // splits), so a gauge can't flicker across the threshold
+        // as fuel burns. The matched-stacks state is only
+        // re-entered on the next vessel-structure event when
+        // `MergeEquivalentGroups` re-runs from scratch.
+        //
+        // Convergence: if the kicked group itself contains further
+        // drift, it settles over subsequent frames — each pass peels
+        // off divergent components against the kicked group's own
+        // (new) first component. For realistic layouts this
+        // stabilises in 1–2 frames.
+        //
+        // Returns true iff at least one group was split.
+        private bool SplitDriftedMergedGroups()
+        {
+            bool splitAny = false;
+            // Walk backward so in-place splits don't renumber indices
+            // we haven't visited yet.
+            for (int g = _groups.Count - 1; g >= 0; g--)
+            {
+                EngineGroupCache gc = _groups[g];
+                if (gc.Components.Count < 2) continue;
+
+                List<EngineGroupComponent> kicked = FindDriftedComponents(gc);
+                if (kicked == null || kicked.Count == 0) continue;
+
+                // Partition: kept = everything not kicked, preserved
+                // in the aggregate's original order.
+                List<EngineGroupComponent> kept = new List<EngineGroupComponent>(
+                    gc.Components.Count - kicked.Count);
+                for (int i = 0; i < gc.Components.Count; i++)
+                {
+                    EngineGroupComponent c = gc.Components[i];
+                    if (!kicked.Contains(c)) kept.Add(c);
+                }
+
+                _groups.RemoveAt(g);
+                _groups.Insert(g, BuildGroupFromComponents(kept));
+                _groups.Insert(g + 1, BuildGroupFromComponents(kicked));
+                splitAny = true;
+            }
+            // Shape changed — drop the published snapshot so
+            // TryRefreshFuelLevels rebuilds it to match the new
+            // group count.
+            if (splitAny) _published.Clear();
+            return splitAny;
+        }
+
+        // Returns the list of components whose per-propellant totals
+        // deviate from the group's first component (the "norm") by
+        // more than `MergeFuelThreshold`, or null if none do. A
+        // stale `PartResource` reference anywhere in the walk
+        // aborts the check and triggers a structure rebuild.
+        private List<EngineGroupComponent> FindDriftedComponents(EngineGroupCache group)
+        {
+            List<EngineGroupComponent> comps = group.Components;
+            EngineGroupComponent norm = comps[0];
+            int P = norm.Sources.Count;
+
+            // Cache the norm's totals once — the same values get
+            // compared against every other component.
+            double[] normAmts = new double[P];
+            double[] normCaps = new double[P];
+            for (int p = 0; p < P; p++)
+            {
+                if (!SumResources(norm.Sources[p].Resources, out normAmts[p], out normCaps[p]))
+                {
+                    return null;
+                }
+            }
+
+            List<EngineGroupComponent> drifted = null;
+            for (int i = 1; i < comps.Count; i++)
+            {
+                EngineGroupComponent c = comps[i];
+                bool kick = false;
+                for (int p = 0; p < P; p++)
+                {
+                    double amt, cap;
+                    if (!SumResources(c.Sources[p].Resources, out amt, out cap))
+                    {
+                        return null;
+                    }
+                    double scale = System.Math.Max(cap, normCaps[p]);
+                    if (scale <= 1e-9) continue;
+                    if (System.Math.Abs(amt - normAmts[p]) / scale > MergeFuelThreshold ||
+                        System.Math.Abs(cap - normCaps[p]) / scale > MergeFuelThreshold)
+                    {
+                        kick = true;
+                        break;
+                    }
+                }
+                if (kick)
+                {
+                    if (drifted == null) drifted = new List<EngineGroupComponent>();
+                    drifted.Add(c);
+                }
+            }
+            return drifted;
+        }
+
+        // Reconstitute an `EngineGroupCache` from one or more
+        // components. For a singleton the component's own lists are
+        // reused directly (they're not mutated post-rebuild). For
+        // multiple components we fold-left via `MergeGroups`, which
+        // produces fresh combined Engines/Sources lists and a
+        // flattened Components list on the result.
+        private static EngineGroupCache BuildGroupFromComponents(List<EngineGroupComponent> comps)
+        {
+            EngineGroupCache acc = SingletonGroup(comps[0]);
+            for (int i = 1; i < comps.Count; i++)
+            {
+                acc = MergeGroups(acc, SingletonGroup(comps[i]));
+            }
+            return acc;
+        }
+
+        private static EngineGroupCache SingletonGroup(EngineGroupComponent c)
+        {
+            return new EngineGroupCache
+            {
+                SignatureKey = c.SignatureKey,
+                Engines = c.Engines,
+                Sources = c.Sources,
+                Components = new List<EngineGroupComponent>(1) { c },
+            };
+        }
+
+        // Returns false if any resource reference has gone stale —
+        // the caller treats that as "can't decide right now" and
+        // the next structure event will rebuild cleanly.
+        private bool SumResources(List<PartResource> resources, out double amount, out double capacity)
+        {
+            amount = 0;
+            capacity = 0;
+            for (int k = 0; k < resources.Count; k++)
+            {
+                PartResource pr = resources[k];
+                if (pr == null || pr.part == null)
+                {
+                    _structureDirty = true;
+                    return false;
+                }
+                amount += pr.amount;
+                capacity += pr.maxAmount;
+            }
+            return true;
         }
 
         // ---- Wire ----
