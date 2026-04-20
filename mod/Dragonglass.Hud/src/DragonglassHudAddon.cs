@@ -263,8 +263,7 @@ namespace Dragonglass.Hud
                 MaybeEmitResize();
             }
 
-            // --- Gate the overlay through any form of scene loading.
-            //     Union of two signals:
+            // --- Gate the overlay. Union of three signals:
             //       • LoadingBufferMask.camera.enabled — the
             //         planet-spinner overlay, up for the visible chunk
             //         of async transitions (SPACECENTER etc.)
@@ -273,12 +272,14 @@ namespace Dragonglass.Hud
             //         onLevelWasLoadedGUIReady, covers sync transitions
             //         (e.g. SPACECENTER → EDITOR) where the mask shows
             //         and hides in the same frame.
+            //       • Pause menu open — so the stock ESC dialog reads
+            //         against the game scene instead of our HUD.
             //     Hiding the canvas stops Unity compositing the stale
             //     CEF blit over whatever KSP draws in the transition.
             //     We still run the blit pipeline underneath so the
             //     backing texture is current by the time we un-hide. ---
-            bool loading = IsLoadingMaskVisible() || _sceneTransitioning;
-            if (_overlay != null) _overlay.Visible = !loading;
+            bool hide = IsLoadingMaskVisible() || _sceneTransitioning || IsPauseMenuOpen();
+            if (_overlay != null) _overlay.Visible = !hide;
 
             // --- Pixel pipeline: sidecar → KSP overlay ---
             if (_reader != null && _overlay != null)
@@ -486,6 +487,14 @@ namespace Dragonglass.Hud
                 ? _maskInstanceField.GetValue(null) as LoadingBufferMask
                 : null;
             return mask != null && mask.camera != null && mask.camera.enabled;
+        }
+
+        // PauseMenu is a flight-scene singleton. `exists` guards against
+        // NRE in non-flight scenes where `fetch` is null; `isOpen`
+        // returns `fetch.display` and flips the moment Display() runs.
+        private static bool IsPauseMenuOpen()
+        {
+            return PauseMenu.exists && PauseMenu.isOpen;
         }
 
         private void OnDestroy()
