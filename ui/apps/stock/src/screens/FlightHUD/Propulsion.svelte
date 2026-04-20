@@ -145,9 +145,15 @@
   // its own bar so imbalances are visible at a glance.
   function renderGauges(group: EngineGroup): Gauge[] {
     if (group.propellants.length === 0) return [];
-    const fractions = group.propellants.map((p) =>
-      p.capacity > 0 ? p.available / p.capacity : 0,
-    );
+    // Snap near-zero residuals to 0. After flameout KSP tanks often
+    // hold a sub-unit residual that reads as ~0.01 % — enough to
+    // leak the alert-state bar's red box-shadow glow through an
+    // otherwise-empty gauge.
+    const fractions = group.propellants.map((p) => {
+      if (p.capacity <= 0) return 0;
+      const f = p.available / p.capacity;
+      return f < 0.001 ? 0 : f;
+    });
     const first = fractions[0];
     const matched =
       group.propellants.length > 1 &&
@@ -213,10 +219,12 @@
               <div class="prop__fuel-gauge prop__fuel-gauge--{gauge.state}">
                 <span class="prop__fuel-label">{gauge.label}</span>
                 <div class="prop__fuel-bar" role="presentation">
-                  <div
-                    class="prop__fuel-bar-fill"
-                    style="--pct: {Math.max(0, Math.min(100, gauge.pct))}%"
-                  ></div>
+                  {#if gauge.pct > 0}
+                    <div
+                      class="prop__fuel-bar-fill"
+                      style="--pct: {Math.min(100, gauge.pct)}%"
+                    ></div>
+                  {/if}
                   {#if gauge.state !== 'nominal'}
                     <span class="prop__fuel-bar-pct">{Math.round(gauge.pct)}%</span>
                   {/if}
