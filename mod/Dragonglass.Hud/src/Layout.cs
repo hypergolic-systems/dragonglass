@@ -88,6 +88,29 @@ namespace Dragonglass.Hud
         /// <see cref="InputBtnNone"/>.
         /// </summary>
         public const byte InputResize = 5;
+        /// <summary>
+        /// Plugin is asking the sidecar to navigate the main frame to
+        /// a new URL. This event spans multiple ring slots: one header
+        /// slot of this type carrying the UTF-8 byte length in
+        /// <c>extra</c>, followed by <c>ceil(byte_len / 12)</c>
+        /// <see cref="InputNavigateChunk"/> slots that pack URL bytes
+        /// into the x / y / extra fields. The producer reserves all
+        /// slots and bumps <c>write_idx</c> once.
+        /// </summary>
+        public const byte InputNavigate = 6;
+        /// <summary>
+        /// Continuation slot for <see cref="InputNavigate"/>. Carries
+        /// 12 raw URL bytes in the x / y / extra fields. Final chunk
+        /// zero-pads any unused tail bytes.
+        /// </summary>
+        public const byte InputNavigateChunk = 7;
+
+        /// <summary>
+        /// Hard cap on the URL byte length a single InputNavigate
+        /// message may carry. Mirrors MAX_NAV_URL_BYTES on the Rust
+        /// side.
+        /// </summary>
+        public const int MaxNavUrlBytes = 2048;
 
         // Input button codes (u8).
         public const byte InputBtnNone = 0;

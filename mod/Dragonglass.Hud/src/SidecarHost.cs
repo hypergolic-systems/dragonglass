@@ -40,6 +40,13 @@ namespace Dragonglass.Hud
         private static bool _quitHookInstalled;
         private static bool _attempted;
 
+        // Live ShmReader registered by the HUD addon when it opens the
+        // SHM file. Static-public callers (NavigateTo, future control
+        // ops) reach the producer side of the input ring through this.
+        // Cleared on dispose so we don't write through a stale handle.
+        private static ShmReader _registeredReader;
+        private static bool _navigateNoReaderLogged;
+
         /// <summary>
         /// Unique session ID for this KSP instance. Used to derive
         /// instance-specific SHM paths so multiple KSP instances
@@ -141,6 +148,69 @@ namespace Dragonglass.Hud
                     SafeDispose();
                 }
             }
+        }
+
+        /// <summary>
+        /// Tell the sidecar to navigate the CEF main frame to
+        /// <paramref name="url"/>. The live telemetry WS URL is
+        /// appended as a `ws=<encoded>` query param before dispatch,
+        /// matching how the sidecar augments the boot URL — so the UI
+        /// reconnects to the live feed across navigations the same
+        /// way it does on first load. Routed through the plugin→
+        /// sidecar input ring; safe to call from any KSP thread the
+        /// addon's Update() runs on. Returns false if the URL was
+        /// rejected (empty, too long, ring full) or the sidecar isn't
+        /// connected yet.
+        /// </summary>
+        public static bool NavigateTo(string url)
+        {
+            ShmReader reader;
+            lock (Lock)
+            {
+                reader = _registeredReader;
+            }
+            if (reader == null)
+            {
+                if (!_navigateNoReaderLogged)
+                {
+                    _navigateNoReaderLogged = true;
+                    UDebug.LogWarning(LogPrefix + "NavigateTo dropped — sidecar not connected yet");
+                }
+                return false;
+            }
+            _navigateNoReaderLogged = false;
+            return reader.WriteNavigate(AppendTelemetryWs(url));
+        }
+
+        /// <summary>
+        /// Append `ws=<encoded TelemetryWsUrl>` to <paramref name="url"/>
+        /// using `?` or `&` depending on whether a query string already
+        /// exists, and preserving any `#fragment` at the tail.
+        /// </summary>
+        private static string AppendTelemetryWs(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return url;
+            int frag = url.IndexOf('#');
+            string head = frag < 0 ? url : url.Substring(0, frag);
+            string tail = frag < 0 ? "" : url.Substring(frag);
+            string sep = head.IndexOf('?') < 0 ? "?" : "&";
+            return head + sep + "ws=" + Uri.EscapeDataString(TelemetryWsUrl) + tail;
+        }
+
+        /// <summary>
+        /// Called by the HUD addon once it has opened the SHM file.
+        /// </summary>
+        internal static void RegisterReader(ShmReader reader)
+        {
+            lock (Lock) { _registeredReader = reader; }
+        }
+
+        /// <summary>
+        /// Called by the HUD addon before it disposes its ShmReader.
+        /// </summary>
+        internal static void ClearReader()
+        {
+            lock (Lock) { _registeredReader = null; }
         }
 
         /// <summary>

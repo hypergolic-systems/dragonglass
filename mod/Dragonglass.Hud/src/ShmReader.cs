@@ -10,6 +10,7 @@
 using System;
 using System.IO;
 using System.IO.MemoryMappedFiles;
+using System.Text;
 
 namespace Dragonglass.Hud
 {
@@ -262,6 +263,105 @@ namespace Dragonglass.Hud
                     _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
                 }
             }
+        }
+
+        /// <summary>
+        /// Encode <paramref name="url"/> as UTF-8 and write a multi-slot
+        /// <see cref="Layout.InputNavigate"/> message into the ring: one
+        /// header slot followed by <c>ceil(byteLen / 12)</c> chunk slots
+        /// packing the URL bytes into the x / y / extra fields. The
+        /// write_idx bump happens once at the end so the sidecar never
+        /// observes a partial URL. Returns false (and logs) if the URL
+        /// is null/empty, exceeds <see cref="Layout.MaxNavUrlBytes"/>,
+        /// or the ring lacks contiguous capacity for the whole message.
+        /// </summary>
+        public bool WriteNavigate(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return false;
+
+            byte[] bytes = Encoding.UTF8.GetBytes(url);
+            if (bytes.Length > Layout.MaxNavUrlBytes) return false;
+
+            const int BytesPerChunk = 12;
+            int chunkCount = (bytes.Length + BytesPerChunk - 1) / BytesPerChunk;
+            int slotCount = 1 + chunkCount;
+            if (slotCount > Layout.InputRingCapacity) return false;
+
+            unsafe
+            {
+                byte* basePtr = null;
+                _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref basePtr);
+                try
+                {
+                    uint* writeIdxPtr = (uint*)(basePtr + Layout.OffInputWriteIdx);
+                    uint* readIdxPtr = (uint*)(basePtr + Layout.OffInputReadIdx);
+
+                    uint writeIdx = *writeIdxPtr;
+                    System.Threading.Thread.MemoryBarrier();
+                    uint readIdx = *readIdxPtr;
+
+                    // Ring lacks room for all N+1 slots. SPSC requires
+                    // we not split the message, so drop the whole thing.
+                    if (writeIdx - readIdx + (uint)slotCount > (uint)Layout.InputRingCapacity)
+                        return false;
+
+                    // Header slot: type, length-in-extra, rest zero.
+                    WriteSlot(basePtr, writeIdx,
+                        Layout.InputNavigate, 0, 0, 0, bytes.Length);
+
+                    // Chunk slots: 12 bytes packed into x/y/extra each.
+                    // Final chunk's tail past byteLen stays zero so the
+                    // sidecar's length-driven trim drops the padding.
+                    fixed (byte* src = bytes)
+                    {
+                        for (int i = 0; i < chunkCount; i++)
+                        {
+                            int srcOff = i * BytesPerChunk;
+                            int remaining = bytes.Length - srcOff;
+                            int copy = remaining < BytesPerChunk ? remaining : BytesPerChunk;
+
+                            int x = 0, y = 0, extra = 0;
+                            byte* xp = (byte*)&x;
+                            byte* yp = (byte*)&y;
+                            byte* ep = (byte*)&extra;
+                            for (int b = 0; b < copy; b++)
+                            {
+                                byte v = src[srcOff + b];
+                                if (b < 4) xp[b] = v;
+                                else if (b < 8) yp[b - 4] = v;
+                                else ep[b - 8] = v;
+                            }
+
+                            WriteSlot(basePtr, writeIdx + 1u + (uint)i,
+                                Layout.InputNavigateChunk, 0, x, y, extra);
+                        }
+                    }
+
+                    // Release-store the bumped index so the consumer
+                    // sees every slot before the index advances.
+                    System.Threading.Thread.MemoryBarrier();
+                    *writeIdxPtr = writeIdx + (uint)slotCount;
+                }
+                finally
+                {
+                    _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
+                }
+            }
+            return true;
+        }
+
+        private static unsafe void WriteSlot(
+            byte* basePtr, uint absIdx, byte type, byte button, int x, int y, int extra)
+        {
+            int slotIdx = (int)(absIdx % (uint)Layout.InputRingCapacity);
+            byte* slot = basePtr + Layout.OffInputRing + slotIdx * Layout.InputSlotSize;
+
+            *(slot + Layout.SlotOffType) = type;
+            *(slot + Layout.SlotOffButton) = button;
+            *(short*)(slot + 2) = 0; // reserved
+            *(int*)(slot + Layout.SlotOffX) = x;
+            *(int*)(slot + Layout.SlotOffY) = y;
+            *(int*)(slot + Layout.SlotOffExtra) = extra;
         }
 
         public void Dispose()

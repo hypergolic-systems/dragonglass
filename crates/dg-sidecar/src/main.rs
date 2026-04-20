@@ -121,9 +121,10 @@ fn start_static_server(root_dir: &Path) -> Result<String> {
 }
 
 /// Map an `InputEvent` from the SHM ring buffer into a CEF
-/// `BrowserHost::send_mouse_*` call. Resize events are handled by
-/// `handle_resize` instead — they need extra state (the render
-/// handler + canvas bridge) beyond what this function takes.
+/// `BrowserHost::send_mouse_*` call. Resize and navigate events are
+/// handled in the drain block instead — they need extra state (the
+/// render handler / canvas bridge for resize, the cross-slot URL
+/// accumulator and browser handle for navigate).
 fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent) {
     use dg_shm::layout::{
         INPUT_BTN_LEFT, INPUT_BTN_MIDDLE, INPUT_BTN_RIGHT, INPUT_MOUSE_DOWN, INPUT_MOUSE_MOVE,
@@ -155,6 +156,27 @@ fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent) {
         }
         _ => {}
     }
+}
+
+/// In-progress `INPUT_NAVIGATE` message. The header slot establishes
+/// the expected URL byte length; subsequent `INPUT_NAVIGATE_CHUNK`
+/// slots append 12 bytes each until `buf.len() >= expected`. State
+/// lives across drain calls because the plugin may publish header +
+/// chunks across the sidecar's 8 ms sleep.
+struct NavAccumulator {
+    expected: usize,
+    buf: Vec<u8>,
+}
+
+/// Append up to 12 bytes from a chunk slot's x / y / extra fields
+/// into `buf`, capped so the final chunk's zero-padding is dropped.
+fn push_nav_chunk(buf: &mut Vec<u8>, evt: &InputEvent, expected: usize) {
+    let mut tmp = [0u8; 12];
+    tmp[0..4].copy_from_slice(&evt.x.to_le_bytes());
+    tmp[4..8].copy_from_slice(&evt.y.to_le_bytes());
+    tmp[8..12].copy_from_slice(&evt.extra.to_le_bytes());
+    let take = expected.saturating_sub(buf.len()).min(12);
+    buf.extend_from_slice(&tmp[..take]);
 }
 
 /// Handle an `INPUT_RESIZE` event from the plugin. Recreates the
@@ -354,24 +376,62 @@ fn main() -> Result<()> {
 
     eprintln!("entering CEF message pump loop");
 
+    // In-progress navigate URL accumulator. Lives across drain calls
+    // because the plugin's multi-slot navigate write may straddle our
+    // 8 ms sleep.
+    let mut nav: Option<NavAccumulator> = None;
+
     // Manual pump loop. Sleep interval is 8 ms — balances latency
     // against GPU contention with Unity's Metal work.
     loop {
         do_message_loop_work();
 
-        // Drain input events from the SHM ring buffer and inject
-        // them into CEF via BrowserHost. Resize events need the
-        // render handler too (to swap the canvas bridge + update
-        // atomics), so they take a separate path.
+        // Drain input events from the SHM ring buffer and inject them
+        // into CEF. Resize needs the render handler (to swap the
+        // canvas bridge + update atomics); navigate needs both the
+        // cross-slot accumulator and the browser handle for
+        // `main_frame().load_url()`. Mouse events fall through to
+        // `inject_input_event`.
         if let Ok(slot) = browser_slot.lock() {
             if let Some(ref browser) = *slot {
                 if let Some(host) = browser.host() {
-                    input_ring.drain(|evt| {
-                        if evt.kind == dg_shm::layout::INPUT_RESIZE {
+                    use dg_shm::layout::{
+                        INPUT_NAVIGATE, INPUT_NAVIGATE_CHUNK, INPUT_RESIZE, MAX_NAV_URL_BYTES,
+                    };
+                    input_ring.drain(|evt| match evt.kind {
+                        INPUT_RESIZE => {
+                            nav = None;
                             handle_resize(&render_inner_main, &host, evt);
-                        } else {
-                            inject_input_event(&host, evt);
                         }
+                        INPUT_NAVIGATE => {
+                            let n = (evt.extra as usize).min(MAX_NAV_URL_BYTES);
+                            nav = Some(NavAccumulator {
+                                expected: n,
+                                buf: Vec::with_capacity(n),
+                            });
+                        }
+                        INPUT_NAVIGATE_CHUNK => match nav.as_mut() {
+                            Some(acc) => {
+                                push_nav_chunk(&mut acc.buf, &evt, acc.expected);
+                                if acc.buf.len() >= acc.expected {
+                                    match std::str::from_utf8(&acc.buf) {
+                                        Ok(url) => {
+                                            if let Some(frame) = browser.main_frame() {
+                                                frame.load_url(Some(&CefString::from(url)));
+                                            }
+                                        }
+                                        Err(_) => {
+                                            eprintln!("nav: dropped non-UTF-8 URL");
+                                        }
+                                    }
+                                    nav = None;
+                                }
+                            }
+                            None => {
+                                eprintln!("nav: stray chunk without header — dropping");
+                            }
+                        },
+                        _ => inject_input_event(&host, evt),
                     });
                 }
             }

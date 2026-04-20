@@ -107,12 +107,33 @@ time (`idx % INPUT_RING_CAPACITY`).
 
 | Offset | Size | Field    | Meaning                                         |
 |-------:|-----:|----------|-------------------------------------------------|
-|    0   |  1   | `type`   | `1`=MouseMove, `2`=MouseDown, `3`=MouseUp, `4`=MouseWheel |
+|    0   |  1   | `type`   | `1`=MouseMove, `2`=MouseDown, `3`=MouseUp, `4`=MouseWheel, `5`=Resize, `6`=Navigate, `7`=NavigateChunk |
 |    1   |  1   | `button` | `0`=None, `1`=Left, `2`=Right, `3`=Middle       |
 |    2   |  2   | _pad_    | zero-filled                                     |
-|    4   |  4   | `x`      | CEF viewport x (i32)                            |
-|    8   |  4   | `y`      | CEF viewport y (i32)                            |
-|   12   |  4   | `extra`  | wheel delta (MouseWheel) or 0                   |
+|    4   |  4   | `x`      | CEF viewport x (i32) — width on Resize, URL bytes [0..4] on NavigateChunk |
+|    8   |  4   | `y`      | CEF viewport y (i32) — height on Resize, URL bytes [4..8] on NavigateChunk |
+|   12   |  4   | `extra`  | wheel delta (MouseWheel), URL byte length (Navigate), URL bytes [8..12] (NavigateChunk), or 0 |
+
+### Multi-slot navigate messages
+
+`INPUT_NAVIGATE` (type `6`) tells the sidecar to point CEF's main
+frame at a new URL. Because URLs don't fit in 16 bytes, a single
+navigate message spans **`1 + ceil(byte_len / 12)`** consecutive ring
+slots:
+
+1. **Header slot** — `type = 6`, `extra = byte_len`. `x` / `y` are
+   zero. `byte_len` is the UTF-8 byte length of the URL, capped at
+   `MAX_NAV_URL_BYTES = 2048`.
+2. **Chunk slots** — `type = 7`. The URL bytes are packed
+   little-endian into `x` (bytes 0..4), `y` (bytes 4..8), and `extra`
+   (bytes 8..12) — 12 bytes per slot. The final chunk zero-pads any
+   unused tail bytes; the consumer trims to `byte_len`.
+
+The producer reserves all `1 + N` slots in a single critical section
+and bumps `write_idx` once at the end, so the consumer never observes
+a partial URL. The consumer carries cross-slot state (the URL byte
+accumulator) across drain calls because the producer's slot writes
+may straddle the consumer's poll interval.
 
 ### Ring protocol
 

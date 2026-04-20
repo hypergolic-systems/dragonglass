@@ -21,11 +21,11 @@ use anyhow::{bail, Context, Result};
 use memmap2::{Mmap, MmapMut};
 
 use crate::layout::{
-    FORMAT_BGRA8_PREMUL, HEADER_SIZE, MAGIC, OFF_FORMAT, OFF_FRAME_ID, OFF_HEADER_SIZE,
-    OFF_HEIGHT, OFF_INPUT_READ_IDX, OFF_INPUT_RING, OFF_INPUT_WRITE_IDX, OFF_IO_SURFACE_GEN,
-    OFF_IO_SURFACE_ID, OFF_MAGIC, OFF_SEQ, OFF_STRIDE, OFF_VERSION, OFF_WIDTH,
-    INPUT_RING_CAPACITY, INPUT_SLOT_SIZE, SHM_FILE_SIZE, SLOT_OFF_BUTTON, SLOT_OFF_EXTRA,
-    SLOT_OFF_TYPE, SLOT_OFF_X, SLOT_OFF_Y, VERSION,
+    FORMAT_BGRA8_PREMUL, HEADER_SIZE, INPUT_RING_CAPACITY, INPUT_SLOT_SIZE, MAGIC, OFF_FORMAT,
+    OFF_FRAME_ID, OFF_HEADER_SIZE, OFF_HEIGHT, OFF_INPUT_READ_IDX, OFF_INPUT_RING,
+    OFF_INPUT_WRITE_IDX, OFF_IO_SURFACE_GEN, OFF_IO_SURFACE_ID, OFF_MAGIC, OFF_SEQ, OFF_STRIDE,
+    OFF_VERSION, OFF_WIDTH, SHM_FILE_SIZE, SLOT_OFF_BUTTON, SLOT_OFF_EXTRA, SLOT_OFF_TYPE,
+    SLOT_OFF_X, SLOT_OFF_Y, VERSION,
 };
 
 /// Default location for the shared file on the current OS.
@@ -380,6 +380,7 @@ impl InputRingReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::{INPUT_NAVIGATE, INPUT_NAVIGATE_CHUNK};
     use std::sync::atomic::{AtomicBool, AtomicU64 as StdAtomicU64, Ordering as O};
     use std::sync::Arc;
     use std::thread;
@@ -509,5 +510,112 @@ mod tests {
         assert_eq!(torn, 0, "observed {} torn reads out of {}", torn, observed);
 
         std::fs::remove_file(&path).ok();
+    }
+
+    /// Simulate the plugin's multi-slot navigate write (header slot
+    /// declaring URL byte length, followed by chunk slots packing 12
+    /// bytes each into x/y/extra) and verify the consumer reassembles
+    /// the original URL byte-for-byte across drain calls.
+    #[test]
+    fn navigate_round_trip_through_ring() {
+        let path = tmp_path("navigate");
+        let _ = std::fs::remove_file(&path);
+
+        let w = ShmWriter::create(&path, 4, 4).expect("create");
+        let base = w.mmap_base();
+        let reader = unsafe { InputRingReader::new(base) };
+
+        let url = b"https://example.com/very/specific/path?query=1&x=abc";
+        write_navigate(base, url);
+
+        let mut nav: Option<(usize, Vec<u8>)> = None;
+        let mut delivered: Vec<u8> = Vec::new();
+        reader.drain(|evt| match evt.kind {
+            INPUT_NAVIGATE => {
+                nav = Some((evt.extra as usize, Vec::new()));
+            }
+            INPUT_NAVIGATE_CHUNK => {
+                if let Some((expected, ref mut buf)) = nav {
+                    let mut tmp = [0u8; 12];
+                    tmp[0..4].copy_from_slice(&evt.x.to_le_bytes());
+                    tmp[4..8].copy_from_slice(&evt.y.to_le_bytes());
+                    tmp[8..12].copy_from_slice(&evt.extra.to_le_bytes());
+                    let take = expected.saturating_sub(buf.len()).min(12);
+                    buf.extend_from_slice(&tmp[..take]);
+                    if buf.len() >= expected {
+                        delivered = std::mem::take(buf);
+                        nav = None;
+                    }
+                }
+            }
+            _ => {}
+        });
+
+        assert_eq!(delivered.as_slice(), url);
+
+        // Consumer's read_idx caught up with producer's write_idx —
+        // a second drain should see no events.
+        let mut second_pass = 0;
+        reader.drain(|_| second_pass += 1);
+        assert_eq!(second_pass, 0);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Mirror of `ShmReader.WriteNavigate`: split `url` into a header
+    /// slot (length in `extra`) plus 12-byte chunk slots, then bump
+    /// write_idx once at the end so the consumer never observes a
+    /// partial message.
+    fn write_navigate(base: *mut u8, url: &[u8]) {
+        let chunk_count = url.len().div_ceil(12);
+        let slot_count = 1 + chunk_count;
+        unsafe {
+            let write_idx_ptr = base.add(OFF_INPUT_WRITE_IDX) as *mut u32;
+            let read_idx_ptr = base.add(OFF_INPUT_READ_IDX) as *const u32;
+            let write_idx = ptr::read(write_idx_ptr);
+            let _read_idx = ptr::read(read_idx_ptr);
+            assert!(slot_count <= INPUT_RING_CAPACITY);
+
+            write_slot(base, write_idx, INPUT_NAVIGATE, 0, 0, 0, url.len() as i32);
+            for i in 0..chunk_count {
+                let off = i * 12;
+                let take = (url.len() - off).min(12);
+                let mut buf = [0u8; 12];
+                buf[..take].copy_from_slice(&url[off..off + take]);
+                let x = i32::from_le_bytes(buf[0..4].try_into().unwrap());
+                let y = i32::from_le_bytes(buf[4..8].try_into().unwrap());
+                let extra = i32::from_le_bytes(buf[8..12].try_into().unwrap());
+                write_slot(
+                    base,
+                    write_idx + 1 + i as u32,
+                    INPUT_NAVIGATE_CHUNK,
+                    0,
+                    x,
+                    y,
+                    extra,
+                );
+            }
+
+            std::sync::atomic::fence(Ordering::Release);
+            ptr::write(write_idx_ptr, write_idx + slot_count as u32);
+        }
+    }
+
+    unsafe fn write_slot(
+        base: *mut u8,
+        abs_idx: u32,
+        kind: u8,
+        button: u8,
+        x: i32,
+        y: i32,
+        extra: i32,
+    ) {
+        let slot_idx = (abs_idx as usize) % INPUT_RING_CAPACITY;
+        let slot = base.add(OFF_INPUT_RING + slot_idx * INPUT_SLOT_SIZE);
+        ptr::write(slot.add(SLOT_OFF_TYPE), kind);
+        ptr::write(slot.add(SLOT_OFF_BUTTON), button);
+        ptr::write(slot.add(SLOT_OFF_X) as *mut i32, x);
+        ptr::write(slot.add(SLOT_OFF_Y) as *mut i32, y);
+        ptr::write(slot.add(SLOT_OFF_EXTRA) as *mut i32, extra);
     }
 }

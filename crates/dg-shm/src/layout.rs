@@ -90,6 +90,25 @@ pub const INPUT_MOUSE_WHEEL: u8 = 4;
 /// IOSurface. `x` carries the new width, `y` the new height (both
 /// positive `i32` pixel counts). Button stays `INPUT_BTN_NONE`.
 pub const INPUT_RESIZE: u8 = 5;
+/// Plugin is asking the sidecar to navigate the main frame to a new
+/// URL. This event spans multiple ring slots: one header slot of this
+/// type carrying the UTF-8 byte length in `extra`, followed by
+/// `ceil(byte_len / 12)` `INPUT_NAVIGATE_CHUNK` slots that pack the
+/// URL bytes into the `x` / `y` / `extra` fields (12 bytes per slot,
+/// little-endian). The producer reserves all slots and bumps
+/// `write_idx` once, so the consumer never observes a partial URL.
+pub const INPUT_NAVIGATE: u8 = 6;
+/// Continuation slot for `INPUT_NAVIGATE`. Carries 12 raw URL bytes
+/// in the `x` / `y` / `extra` fields. Final chunk zero-pads any
+/// unused tail bytes; the consumer trims to the header's declared
+/// length.
+pub const INPUT_NAVIGATE_CHUNK: u8 = 7;
+
+/// Hard cap on the URL byte length a single `INPUT_NAVIGATE` message
+/// may carry. Keeps any one navigate message well under ring capacity
+/// (240 slots × 12 bytes = 2880 byte ceiling) so a navigate can never
+/// starve concurrent mouse / resize traffic.
+pub const MAX_NAV_URL_BYTES: usize = 2048;
 
 // --- Input button codes (u8) ---
 pub const INPUT_BTN_NONE: u8 = 0;

@@ -170,6 +170,7 @@ namespace Dragonglass.Hud
                 // ShmReader.Open (magic, version, w/h > 0, stride =
                 // w*4) — nothing more to check here.
                 _reader = ShmReader.Open(shmPath);
+                SidecarHost.RegisterReader(_reader);
                 Debug.Log(LogPrefix + "shm open: " + shmPath +
                           " (" + _reader.Width + "x" + _reader.Height + ")");
             }
@@ -494,6 +495,7 @@ namespace Dragonglass.Hud
 
             if (_reader != null)
             {
+                SidecarHost.ClearReader();
                 _reader.Dispose();
                 _reader = null;
             }
