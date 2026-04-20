@@ -33,7 +33,7 @@
 // Wire format (positional array):
 //   data: [vesselId, altAsl, altRadar, [vSurf...], [vOrb...],
 //          throttle, sas, rcs, [qx,qy,qz,qw], [wx,wy,wz], vTgt?,
-//          deltaVMission, currentThrust]
+//          deltaVMission, currentThrust, stageIdx, deltaVStage, twrStage]
 //
 //     vesselId      : string GUID of the active vessel
 //     altAsl        : altitude above sea level (meters)
@@ -57,6 +57,13 @@
 //                     not yet run or returns no result.
 //     currentThrust : sum of instantaneous thrust across all engines on
 //                     the active vessel, in kN (ModuleEngines.finalThrust).
+//     stageIdx      : KSP's current stage index (lower numbers = later
+//                     stages). -1 when no stage is loaded.
+//     deltaVStage   : remaining Δv for the currently-active stage, m/s,
+//                     atmosphere-corrected. 0 when VesselDeltaV has not
+//                     yet run or returns no result for the stage.
+//     twrStage      : thrust-to-weight ratio for the current stage at
+//                     current conditions. 0 when unavailable.
 
 using System.Collections.Generic;
 using System.Text;
@@ -166,6 +173,47 @@ namespace Dragonglass.Telemetry.Topics
             set { if (_currentThrust != value) { _currentThrust = value; MarkDirty(); } }
         }
 
+        // Epsilons for the stage scalars. Inherited from the old
+        // CurrentStageTopic — scalars tolerate sub-1-unit jitter; TWR
+        // half a percent.
+        private const double DvEpsilon = 0.5;
+        private const float TwrEpsilon = 0.005f;
+
+        private int _stageIdx = -1;
+        public int StageIdx
+        {
+            get { return _stageIdx; }
+            set { if (_stageIdx != value) { _stageIdx = value; MarkDirty(); } }
+        }
+
+        private double _deltaVStage;
+        public double DeltaVStage
+        {
+            get { return _deltaVStage; }
+            set
+            {
+                if (System.Math.Abs(_deltaVStage - value) > DvEpsilon)
+                {
+                    _deltaVStage = value;
+                    MarkDirty();
+                }
+            }
+        }
+
+        private float _twrStage;
+        public float TwrStage
+        {
+            get { return _twrStage; }
+            set
+            {
+                if (Mathf.Abs(_twrStage - value) > TwrEpsilon)
+                {
+                    _twrStage = value;
+                    MarkDirty();
+                }
+            }
+        }
+
         private void Update()
         {
             if (FlightGlobals.fetch == null) return;
@@ -212,6 +260,25 @@ namespace Dragonglass.Telemetry.Topics
             DeltaVMission = v.VesselDeltaV != null
                 ? v.VesselDeltaV.TotalDeltaVActual
                 : 0.0;
+
+            // Per-stage Δv / TWR from the same stock simulator. Pulled
+            // off `VesselDeltaV.GetStage(currentStage)` which KSP keeps
+            // cached; we don't trigger the simulation ourselves.
+            int currentStage = v.currentStage;
+            double stageDv = 0;
+            float stageTwr = 0f;
+            if (v.VesselDeltaV != null)
+            {
+                DeltaVStageInfo stage = v.VesselDeltaV.GetStage(currentStage);
+                if (stage != null)
+                {
+                    stageDv = stage.deltaVActual;
+                    stageTwr = stage.TWRActual;
+                }
+            }
+            StageIdx = currentStage;
+            DeltaVStage = stageDv;
+            TwrStage = stageTwr;
 
             // Summed instantaneous thrust across every engine on the
             // active vessel, in kN. Flamed-out / shut-down engines
@@ -335,6 +402,12 @@ namespace Dragonglass.Telemetry.Topics
             Json.WriteDouble(sb, _deltaVMission);
             sb.Append(',');
             Json.WriteFloat(sb, _currentThrust);
+            sb.Append(',');
+            Json.WriteLong(sb, _stageIdx);
+            sb.Append(',');
+            Json.WriteDouble(sb, _deltaVStage);
+            sb.Append(',');
+            Json.WriteFloat(sb, _twrStage);
 
             sb.Append(']');
         }

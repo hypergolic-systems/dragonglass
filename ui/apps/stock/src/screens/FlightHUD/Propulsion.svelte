@@ -8,42 +8,45 @@
   //      - ΔV TOTAL                — remaining mission Δv
   //      - TWR                     — stage thrust-to-weight
   //      - THROTTLE                — pilot input, bar + %
-  //   3. Fuel-group gauges. Engines active in the current stage are
-  //      grouped by the set of tanks they draw from (resolved server-
-  //      side via Part.crossfeedPartSet). Each group gets a small
-  //      icon highlighting its engines and one-or-more fuel bars.
-  //      A matched-proportion group renders a single unified bar
-  //      (e.g. "LFO"); an imbalanced group splits into per-
-  //      propellant bars so drain mismatches are visible.
+  //   3. Fuel-group gauges. Engines are partitioned into fuel groups
+  //      by matching crossfeed reach + propellant set (see
+  //      `engine-groups.ts`). Each group gets a small icon
+  //      highlighting its engines and one-or-more fuel bars. A
+  //      matched-proportion group renders a single unified bar
+  //      (e.g. "LFO"); an imbalanced group splits into per-propellant
+  //      bars so drain mismatches are visible.
   //   4. Engine rosette. Orthographic bottom-up plot of every engine
   //      on the vessel, sized ∝ √thrust, colour-coded by status.
   //
-  // Data comes from three telemetry topics:
-  //   - `useFlightData()`        — throttle, deltaVMission
-  //   - `useCurrentStageData()`  — deltaVStage, twrStage, fuel groups
-  //   - `useEngineData()`        — engine positions + statuses for
-  //                                both the rosette and the group
-  //                                icons.
+  // Data comes from two telemetry topics:
+  //   - `useFlightData()`   — throttle, deltaVMission, deltaVStage,
+  //                            twrStage, stageIdx
+  //   - `useEngineData()`   — per-engine position, status, thrust,
+  //                            Isp, crossfeed reach, and propellant
+  //                            levels. The fuel-group partitioning
+  //                            is computed locally via `groupEngines`
+  //                            in `engine-groups.ts`.
 
   import {
     useFlightData,
     useEngineData,
-    useCurrentStageData,
   } from '@dragonglass/telemetry/svelte';
   import type { EngineGroup } from '@dragonglass/telemetry/core';
   import EngineIcon from './EngineIcon.svelte';
   import { idealizeEngineMap } from './engine-map';
+  import { groupEngines } from './engine-groups';
   import { formatDeltaV, formatTwr } from './format';
-  import { shortResourceName, unifiedResourceLabel } from './resource-names';
+  import { unifiedResourceLabel } from './resource-names';
   import './Propulsion.css';
 
   const s = useFlightData();
   const e = useEngineData();
-  const cs = useCurrentStageData();
 
-  const dvStage = $derived(formatDeltaV(cs.deltaVStage));
+  const groups = $derived(groupEngines(e.engines));
+
+  const dvStage = $derived(formatDeltaV(s.deltaVStage));
   const dvTotal = $derived(formatDeltaV(s.deltaVMission));
-  const twrText = $derived(formatTwr(cs.twrStage));
+  const twrText = $derived(formatTwr(s.twrStage));
   const throttlePct = $derived(Math.round(s.throttle * 100));
   const throttleClamped = $derived(Math.max(0, Math.min(100, throttlePct)));
   const layout = $derived(idealizeEngineMap(e.engines));
@@ -162,7 +165,7 @@
       const pct = first * 100;
       return [
         {
-          label: unifiedResourceLabel(group.propellants.map((p) => p.resourceName)),
+          label: unifiedResourceLabel(group.propellants.map((p) => p.abbr)),
           pct,
           state: stateFor(pct),
         },
@@ -171,7 +174,7 @@
     return group.propellants.map((p, i) => {
       const pct = fractions[i] * 100;
       return {
-        label: shortResourceName(p.resourceName),
+        label: p.abbr,
         pct,
         state: stateFor(pct),
       };
@@ -179,7 +182,7 @@
   }
 
   const fuelRows = $derived(
-    cs.groups.map((g, i) => ({
+    groups.map((g, i) => ({
       key: `${i}:${g.engineIds.join(',')}`,
       group: g,
       gauges: renderGauges(g),

@@ -9,7 +9,12 @@
 
 import { Quaternion, Vector3 } from 'three';
 import type { FlightData } from '../core/flight-data';
-import { ENGINES_MAX_THRUST } from './engines-fixture';
+import {
+  ENGINES_MAX_THRUST,
+  STAGE_IDX_SIM,
+  STAGE_DELTA_V_SIM,
+  STAGE_TWR_SIM,
+} from './engines-fixture';
 
 const TORQUE = (35 * Math.PI) / 180;
 
@@ -128,6 +133,9 @@ export class FlightSimulation {
       targetVelocity: new Vector3(),
       deltaVMission: 3800,
       currentThrust: this.throttle * ENGINES_MAX_THRUST,
+      stageIdx: STAGE_IDX_SIM,
+      deltaVStage: STAGE_DELTA_V_SIM,
+      twrStage: STAGE_TWR_SIM,
     };
   }
 }

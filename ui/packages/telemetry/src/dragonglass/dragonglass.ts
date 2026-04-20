@@ -21,7 +21,6 @@ import {
   decodeGame,
   decodeFlight,
   decodeEngines,
-  decodeCurrentStage,
 } from './decoders';
 
 const RECONNECT_DELAY_MS = 1000;
@@ -37,7 +36,6 @@ export class DragonglassTelemetry implements Ksp {
     game: decodeGame,
     flight: decodeFlight,
     engines: decodeEngines,
-    currentStage: decodeCurrentStage,
   };
   private readonly lastByTopic = new Map<string, unknown>();
 

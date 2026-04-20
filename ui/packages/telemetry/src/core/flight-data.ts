@@ -48,4 +48,13 @@ export interface FlightData {
   readonly deltaVMission: number;
   /** Summed instantaneous engine thrust on the active vessel, kN. */
   readonly currentThrust: number;
+  /** KSP's current stage index. Lower numbers = later stages. -1 when
+   *  no stage is loaded. */
+  readonly stageIdx: number;
+  /** Stage remaining Δv, m/s, atmosphere-corrected. 0 when
+   *  unavailable. */
+  readonly deltaVStage: number;
+  /** Stage thrust-to-weight ratio at current conditions. 0 when
+   *  unavailable. */
+  readonly twrStage: number;
 }

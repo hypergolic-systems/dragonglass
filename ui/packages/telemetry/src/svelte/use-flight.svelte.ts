@@ -33,6 +33,9 @@ interface MutableFlightData {
   targetVelocity: Vector3;
   deltaVMission: number;
   currentThrust: number;
+  stageIdx: number;
+  deltaVStage: number;
+  twrStage: number;
 }
 
 function defaults(): MutableFlightData {
@@ -51,6 +54,9 @@ function defaults(): MutableFlightData {
     targetVelocity: new Vector3(),
     deltaVMission: 0,
     currentThrust: 0,
+    stageIdx: -1,
+    deltaVStage: 0,
+    twrStage: 0,
   };
 }
 
@@ -79,6 +85,9 @@ export function useFlightData(): FlightData {
       store.hasTarget = frame.hasTarget;
       store.deltaVMission = frame.deltaVMission;
       store.currentThrust = frame.currentThrust;
+      store.stageIdx = frame.stageIdx;
+      store.deltaVStage = frame.deltaVStage;
+      store.twrStage = frame.twrStage;
       // Nested class instances (Vector3 / Quaternion) — replace
       // the reference. Svelte doesn't deep-proxy class instances,
       // so copying into the existing instance wouldn't notify

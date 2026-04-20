@@ -13,17 +13,17 @@ export {
   PROPELLANT_DENSITY,
   RESOURCE_DISPLAY_NAME,
 } from './assembly';
-export { type EngineStatus, type EnginePoint, type EngineData } from './engine-data';
 export {
-  type FuelLevel,
+  type EngineStatus,
+  type EnginePropellant,
+  type EnginePoint,
+  type EngineData,
   type EngineGroup,
-  type CurrentStageData,
-} from './current-stage-data';
+} from './engine-data';
 export {
   ClockTopic,
   GameTopic,
   FlightTopic,
   AssemblyTopic,
   EngineTopic,
-  CurrentStageTopic,
 } from './topics';
