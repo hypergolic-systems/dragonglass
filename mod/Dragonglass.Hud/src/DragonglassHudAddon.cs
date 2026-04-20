@@ -19,6 +19,7 @@
 
 using System;
 using System.Reflection;
+using HarmonyLib;
 using UnityEngine;
 
 namespace Dragonglass.Hud
@@ -59,10 +60,6 @@ namespace Dragonglass.Hud
         // Mouse-up only forwards if the matching down was forwarded.
         private bool _cefOwnsClick;
 
-        // Hides the stock navball sphere on Start and restores it in
-        // OnDestroy. Instance-per-addon; nothing persists across scenes.
-        private NavBallHider _navBallHider;
-
         private float _nextShmRetryTime;
         private const float ShmRetryInterval = 0.5f;
 
@@ -81,12 +78,13 @@ namespace Dragonglass.Hud
             // The UI app decides per-scene what to render.
             DontDestroyOnLoad(gameObject);
 
-            // Re-hide the stock navball each time KSP enters Flight —
-            // KSP rebuilds the NavBall singleton on every Flight scene
-            // load, so our cached renderer references go stale. Also
-            // release state on exit to Flight so the next entry starts
-            // fresh.
-            GameEvents.onLevelWasLoadedGUIReady.Add(OnSceneReady);
+            // Install Harmony patches that suppress stock Flight UI
+            // elements Dragonglass replaces (navball, MET clock,
+            // altimeter, vertical-speed, speed readout, trim gauges).
+            // See StockUiHider.cs.
+            new Harmony("net.alxandria.dragonglass.hud")
+                .PatchAll(Assembly.GetExecutingAssembly());
+
             GameEvents.onGameSceneLoadRequested.Add(OnSceneLoadRequested);
             GameEvents.onLevelWasLoadedGUIReady.Add(OnSceneGuiReady);
         }
@@ -152,33 +150,6 @@ namespace Dragonglass.Hud
             // this will fail; Update() retries on a timer until the
             // file exists and matches our dimensions.
             TryOpenReader(firstAttempt: true);
-
-            _navBallHider = new NavBallHider();
-        }
-
-        private void OnSceneReady(GameScenes scene)
-        {
-            if (_navBallHider == null) return;
-
-            if (scene == GameScenes.FLIGHT)
-            {
-                // Deferred a beat so the NavBall singleton finishes its
-                // own Start() — the renderers may not exist yet on the
-                // first Flight-scene tick.
-                Invoke(nameof(HideStockNavBall), 0.5f);
-            }
-            else
-            {
-                // Releasing clears cached (now-stale) refs so the next
-                // Flight entry starts fresh. Safe across scene unloads:
-                // Restore null-guards every cached reference.
-                _navBallHider.Restore();
-            }
-        }
-
-        private void HideStockNavBall()
-        {
-            _navBallHider?.TryHide();
         }
 
         /// <summary>
@@ -518,7 +489,6 @@ namespace Dragonglass.Hud
 
         private void OnDestroy()
         {
-            GameEvents.onLevelWasLoadedGUIReady.Remove(OnSceneReady);
             GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
             GameEvents.onLevelWasLoadedGUIReady.Remove(OnSceneGuiReady);
 
@@ -531,11 +501,6 @@ namespace Dragonglass.Hud
             {
                 _overlay.Dispose();
                 _overlay = null;
-            }
-            if (_navBallHider != null)
-            {
-                _navBallHider.Restore();
-                _navBallHider = null;
             }
             Debug.Log(LogPrefix + "addon destroyed");
         }
