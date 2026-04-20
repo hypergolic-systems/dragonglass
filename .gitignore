@@ -40,6 +40,9 @@ THIRD_PARTY_NOTICES_RUST
 # Logs
 *.log
 
+# Ad-hoc todo list (managed by the /todo skill)
+TODO.md
+
 # Firebase (hosting deploy state — not part of the source tree)
 .firebase/
 .firebaserc
