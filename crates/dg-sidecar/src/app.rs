@@ -54,11 +54,19 @@ pub const INITIAL_HEIGHT: u32 = 1200;
 /// bridge in a Mutex so resize can atomically swap it between frames.
 #[derive(Clone)]
 pub struct KspRenderHandlerInner {
-    /// Current viewport width in pixels. Updated by the main loop's
-    /// resize handler; read by `view_rect` whenever CEF queries.
+    /// Current viewport width in **physical pixels** — what the
+    /// plugin sends via INPUT_RESIZE and what CEF ultimately rasters
+    /// into. `view_rect` divides this by the device scale factor
+    /// before reporting to CEF, so the page sees a DIP-sized canvas
+    /// and CEF supersamples up to the physical size.
     width: Arc<AtomicU32>,
-    /// Current viewport height in pixels.
+    /// Current viewport height in **physical pixels**.
     height: Arc<AtomicU32>,
+    /// Device scale factor CEF reports via `screen_info`, stored as
+    /// `AtomicU32` bits. Driving `window.devicePixelRatio` in the
+    /// page: 1.0 → 1x, 2.0 → Retina/hi-DPI Windows. Set once at
+    /// sidecar launch from the `--device-scale` CLI flag.
+    device_scale_bits: Arc<AtomicU32>,
     writer: Arc<Mutex<ShmWriter>>,
     frame_counter: Arc<AtomicU64>,
     /// Most recently observed IOSurfaceID from `on_accelerated_paint`.
@@ -78,12 +86,13 @@ pub struct KspRenderHandlerInner {
 }
 
 impl KspRenderHandlerInner {
-    pub fn new(writer: ShmWriter) -> Self {
+    pub fn new(writer: ShmWriter, device_scale: f32) -> Self {
         let width = writer.width();
         let height = writer.height();
         Self {
             width: Arc::new(AtomicU32::new(width)),
             height: Arc::new(AtomicU32::new(height)),
+            device_scale_bits: Arc::new(AtomicU32::new(device_scale.to_bits())),
             writer: Arc::new(Mutex::new(writer)),
             frame_counter: Arc::new(AtomicU64::new(0)),
             last_io_surface_id: Arc::new(AtomicU32::new(0)),
@@ -91,6 +100,12 @@ impl KspRenderHandlerInner {
             #[cfg(target_os = "macos")]
             io_surface_bridge: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Current device scale factor. Read by `view_rect` (to divide
+    /// physical dims into DIP) and `screen_info` (to report to CEF).
+    fn device_scale(&self) -> f32 {
+        f32::from_bits(self.device_scale_bits.load(Ordering::Acquire))
     }
 
     /// Attach (or replace) the mach-port bridge that ships IOSurface
@@ -126,17 +141,51 @@ wrap_render_handler! {
     }
 
     impl RenderHandler {
-        /// Tell CEF what size to render at. Called whenever CEF needs
-        /// the viewport size — once per browser at creation, and again
-        /// after every `BrowserHost::was_resized()` triggered by the
-        /// main loop's INPUT_RESIZE handler.
+        /// Tell CEF what size to render at, in **DIP** (device-independent
+        /// pixels). CEF multiplies by `screen_info.device_scale_factor`
+        /// to get the physical paint size — so reporting `physical / scale`
+        /// here yields a paint that's exactly `physical` px, with
+        /// `window.devicePixelRatio = scale` exposed to the page.
+        ///
+        /// Called whenever CEF needs the viewport size — once per
+        /// browser at creation, and again after every
+        /// `BrowserHost::was_resized()` triggered by the main loop's
+        /// INPUT_RESIZE handler.
         fn view_rect(&self, _browser: Option<&mut Browser>, rect: Option<&mut Rect>) {
             if let Some(rect) = rect {
+                let scale = self.handler.device_scale().max(0.1);
+                let w = self.handler.width.load(Ordering::Acquire) as f32;
+                let h = self.handler.height.load(Ordering::Acquire) as f32;
                 rect.x = 0;
                 rect.y = 0;
-                rect.width = self.handler.width.load(Ordering::Acquire) as _;
-                rect.height = self.handler.height.load(Ordering::Acquire) as _;
+                rect.width = (w / scale).round() as _;
+                rect.height = (h / scale).round() as _;
             }
+        }
+
+        /// Report the device scale factor so CEF exposes it to the
+        /// page as `window.devicePixelRatio`. Returning 1 tells CEF
+        /// we supplied valid data; 0 would make it fall back to its
+        /// own default (1.0), defeating hi-DPI.
+        fn screen_info(
+            &self,
+            _browser: Option<&mut Browser>,
+            screen_info: Option<&mut ScreenInfo>,
+        ) -> ::std::os::raw::c_int {
+            let Some(info) = screen_info else { return 0 };
+            let scale = self.handler.device_scale().max(0.1);
+            info.device_scale_factor = scale;
+            let w = self.handler.width.load(Ordering::Acquire) as f32;
+            let h = self.handler.height.load(Ordering::Acquire) as f32;
+            let rect = Rect {
+                x: 0,
+                y: 0,
+                width: (w / scale).round() as _,
+                height: (h / scale).round() as _,
+            };
+            info.rect = rect.clone();
+            info.available_rect = rect;
+            1
         }
 
         /// Zero-copy accelerated-paint path. CEF renders to an IOSurface

@@ -52,6 +52,7 @@
 #include "IUnityGraphicsMetal.h"
 
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <IOSurface/IOSurface.h>
 #include <OpenGL/gl3.h>
@@ -674,6 +675,51 @@ DgHudNative_GetSourceSize(uint32_t io_surface_id, uint32_t* out_w, uint32_t* out
     *out_h = (uint32_t)IOSurfaceGetHeight(surface);
     CFRelease(surface);
     return 1;
+}
+
+/// Backing scale factor of KSP's main NSWindow — 1.0 on a
+/// non-Retina display, 2.0 on Retina, occasionally 3.0 on external
+/// 5K/8K panels. This maps 1:1 to `window.devicePixelRatio` in the
+/// browser, which is what CEF's `device_scale_factor` expects on
+/// its end of the pipe.
+///
+/// Returns 0.0 when no backing scale is determinable (no window
+/// yet, headless run) so the C# caller can fall back to
+/// `Screen.dpi`. We prefer this over `[NSScreen mainScreen]` alone
+/// because the "main screen" from AppKit's perspective is the one
+/// with keyboard focus, not necessarily the one showing KSP — on a
+/// mixed-DPI multi-monitor setup those differ.
+extern "C" UNITY_INTERFACE_EXPORT float
+DgHudNative_GetBackingScale(void)
+{
+    // Walk up to any visible window backing the KSP process. Typical
+    // order of fallbacks:
+    //   1. keyWindow — the window currently receiving events
+    //   2. mainWindow — the app's primary window
+    //   3. first visible window — KSP occasionally defers keyWindow
+    //      assignment during scene transitions
+    //   4. main screen — last resort if no window exists yet
+    @autoreleasepool {
+        NSApplication* app = [NSApplication sharedApplication];
+        if (!app) return 0.0f;
+        NSWindow* w = [app keyWindow];
+        if (!w) w = [app mainWindow];
+        if (!w) {
+            for (NSWindow* candidate in [app windows]) {
+                if ([candidate isVisible]) { w = candidate; break; }
+            }
+        }
+        if (w) {
+            CGFloat s = [w backingScaleFactor];
+            if (s > 0.0) return (float)s;
+        }
+        NSScreen* scr = [NSScreen mainScreen];
+        if (scr) {
+            CGFloat s = [scr backingScaleFactor];
+            if (s > 0.0) return (float)s;
+        }
+        return 0.0f;
+    }
 }
 
 /// Detailed error breakdown so C# can tell which branch is failing

@@ -9,7 +9,7 @@
       <T.OrthographicCamera
         makeDefault
         position={[0, 0, 5]}
-        zoom={130}
+        zoom={87}
         near={0.1}
         far={100}
       />

@@ -86,6 +86,14 @@ namespace Dragonglass.Hud
             out ulong cglTexImage, out ulong fboIncomplete,
             out ulong noDest);
 
+        /// <summary>Backing scale factor of KSP's NSWindow (typically
+        /// 1.0 or 2.0 on macOS). Returns 0.0 if unavailable — caller
+        /// falls back to <c>Screen.dpi</c>. Maps 1:1 to the browser's
+        /// <c>window.devicePixelRatio</c> / CEF's
+        /// <c>device_scale_factor</c>.</summary>
+        [DllImport(Lib)]
+        public static extern float DgHudNative_GetBackingScale();
+
         /// <summary>Read a single BGRA pixel from a globally-lookupable
         /// IOSurface via IOSurfaceLock. Used by the latency probe to
         /// sample the marker rect from the canvas IOSurface — the

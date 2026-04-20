@@ -31,12 +31,21 @@ export const MARKER_COLOR: Record<MarkerKind, string> = {
 };
 
 export function drawNavballTexture(): HTMLCanvasElement {
+  // Logical coordinate system we draw in; the backing canvas is
+  // sized to `W * dpr × H * dpr` so text and lines stay crisp when
+  // the page runs at `window.devicePixelRatio > 1` (CEF hi-DPI path).
+  // All code below treats (W, H) as the drawing area — `ctx.scale`
+  // handles the upscale, so no call sites need to change.
   const W = 2048;
   const H = 1024;
+  const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0
+    ? window.devicePixelRatio
+    : 1;
   const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
   const ctx = canvas.getContext('2d')!;
+  if (dpr !== 1) ctx.scale(dpr, dpr);
   const eq = H / 2;
 
   // Sky at canvas top, ground at canvas bottom. The three.js default

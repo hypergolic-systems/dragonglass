@@ -190,17 +190,41 @@ fn handle_resize(handler: &KspRenderHandlerInner, host: &cef::BrowserHost, evt: 
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 3 {
-        anyhow::bail!("usage: dg-sidecar <path-or-url> <session-id> [ws-url]");
+    // CLI: positional `<path-or-url> <session-id> [ws-url]` plus
+    // optional `--device-scale=<f>` anywhere. We parse flags first
+    // into a separate vec so positional indexing stays simple.
+    let raw: Vec<String> = std::env::args().collect();
+    let mut device_scale: f32 = 1.0;
+    let mut positional: Vec<String> = Vec::with_capacity(raw.len());
+    // Skip argv[0]; anything matching --device-scale=<f> is consumed.
+    for arg in raw.iter().skip(1) {
+        if let Some(v) = arg.strip_prefix("--device-scale=") {
+            match v.parse::<f32>() {
+                Ok(f) if f.is_finite() && f > 0.0 => {
+                    device_scale = f.clamp(0.5, 3.0);
+                }
+                _ => {
+                    eprintln!("--device-scale: ignoring invalid value {v:?}; using 1.0");
+                }
+            }
+        } else {
+            positional.push(arg.clone());
+        }
     }
-    let url_or_path = &args[1];
-    let session_id = &args[2];
-    // Optional third arg: live-telemetry WS URL. The sidecar appends it
-    // to the loaded page as `?ws=<encoded>` so the UI auto-connects
-    // when launched by the KSP HUD. Browser-side iteration (`just
-    // ui-dev`) doesn't pass it and falls back to the simulated feed.
-    let ws_url = args.get(3);
+    if positional.len() < 2 {
+        anyhow::bail!(
+            "usage: dg-sidecar <path-or-url> <session-id> [ws-url] [--device-scale=<f>]"
+        );
+    }
+    let url_or_path = &positional[0];
+    let session_id = &positional[1];
+    // Optional third positional: live-telemetry WS URL. The sidecar
+    // appends it to the loaded page as `?ws=<encoded>` so the UI
+    // auto-connects when launched by the KSP HUD. Browser-side
+    // iteration (`just ui-dev`) doesn't pass it and falls back to the
+    // simulated feed.
+    let ws_url = positional.get(2);
+    eprintln!("device scale factor: {device_scale}");
 
     // If the argument is a local path, serve it over HTTP.
     // If it's already a URL, use it directly.
@@ -279,7 +303,7 @@ fn main() -> Result<()> {
     let browser_slot: BrowserSlot = Arc::new(Mutex::new(None));
 
     // --- Build CEF tree ---
-    let render_inner = KspRenderHandlerInner::new(writer);
+    let render_inner = KspRenderHandlerInner::new(writer, device_scale);
 
     #[cfg(target_os = "macos")]
     {

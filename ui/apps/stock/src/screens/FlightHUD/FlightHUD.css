@@ -46,7 +46,7 @@
      regardless of how tall the stack grows as it accumulates
      future engine/staging panels. */
   align-items: flex-end;
-  gap: 20px;
+  gap: 8px;
 }
 
 .navslot--bottom-left {
@@ -65,27 +65,29 @@
   align-items: stretch;
 }
 
-/* Explicit 488×488 container for the navball + its absolute-
-   positioned SVG overlays (tapes, SAS/RCS wedges). The overlays
-   fill this box via `top/left: 0`; the fixed size is what the
-   parent flex row measures for layout.
+/* Navball-cluster size — the square container whose sides bound
+   the sphere, tapes, and SAS/RCS wedges. All overlays fill this
+   box via `top/left: 0` and scale via their SVG viewBox, so
+   changing this one variable resizes the whole cluster.
+   `--tape-offset` is dead-space below the tape wedge (see the
+   derivation below), scaled from the same ratio so the
+   tape-bottom-to-stack-baseline alignment is preserved.
 
-   The translateY offsets the cluster down so the **tape wedges'**
-   bottom edge lands on the same horizontal line as the staging
-   stack's bottom. The tape panels span 48° either side of
-   horizontal at outer radius 212, so their lowest point is at
-   stage-local y = 212·sin(228°) ≈ 157.6 from the stage's centre,
-   i.e. 488/2 − (488/2 + 157.6) = 86.4px of dead space below the
-   tape bottom in the 488-tall box. The sphere itself only reaches
-   130px below centre, so it naturally sits slightly above the
-   tape bottom in this alignment — which matches how the tapes
-   read as the navball's visual lower extent. */
+   The tape panels span 48° either side of horizontal at outer
+   radius 212 in a 488-unit viewBox, so their lowest point is at
+   stage-local y = 212·sin(228°) ≈ 157.6 from centre, i.e.
+   `size/2 − (size/2 + 157.6·size/488) = 86.4·size/488`
+   of dead space below the tape bottom in the box. That's the
+   shift we have to translateY by so the visible bottom of the
+   wedges lands on the flex row's baseline. */
 .navball-cluster {
   position: relative;
-  width: 488px;
-  height: 488px;
+  --navball-size: 326px;
+  --tape-offset: 57px;
+  width: var(--navball-size);
+  height: var(--navball-size);
   flex: 0 0 auto;
-  transform: translateY(86px);
+  transform: translateY(var(--tape-offset));
 }
 
 /* ---------- Curved tape instrument ---------- */
@@ -97,8 +99,8 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 488px;
-  height: 488px;
+  width: var(--navball-size);
+  height: var(--navball-size);
   pointer-events: none;
   overflow: visible;
 }
@@ -185,8 +187,8 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 488px;
-  height: 488px;
+  width: var(--navball-size);
+  height: var(--navball-size);
   pointer-events: none;
   overflow: visible;
 }
@@ -254,8 +256,8 @@
 
 .navball__stage {
   position: relative;
-  width: 488px;
-  height: 488px;
+  width: var(--navball-size);
+  height: var(--navball-size);
   display: grid;
   place-items: center;
 }
@@ -264,8 +266,9 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 455px;
-  height: 455px;
+  /* 93.2% of cluster — stays inside the tape ring's inner edge. */
+  width: calc(var(--navball-size) * 0.932);
+  height: calc(var(--navball-size) * 0.932);
   transform: translate(-50%, -50%);
   pointer-events: none;
   filter: drop-shadow(0 0 18px rgba(126, 245, 184, 0.22));

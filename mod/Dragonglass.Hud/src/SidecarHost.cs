@@ -98,12 +98,19 @@ namespace Dragonglass.Hud
                     return;
                 }
 
+                float deviceScale = ResolveDeviceScale();
+                UDebug.Log(LogPrefix + "device scale factor → " +
+                    deviceScale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+
                 try
                 {
                     var psi = new ProcessStartInfo
                     {
                         FileName = binary,
-                        Arguments = bootUrl + " " + SessionId + " " + TelemetryWsUrl,
+                        Arguments = bootUrl + " " + SessionId + " " + TelemetryWsUrl
+                            + " --device-scale=" +
+                            deviceScale.ToString("0.###",
+                                System.Globalization.CultureInfo.InvariantCulture),
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
@@ -257,6 +264,41 @@ namespace Dragonglass.Hud
                 UDebug.LogWarning(LogPrefix + "URL resolve failed: " + e.Message);
             }
             return null;
+        }
+
+        /// <summary>
+        /// Resolve the device scale factor we want CEF to expose as
+        /// <c>window.devicePixelRatio</c>. On macOS we prefer the
+        /// native plugin's <c>DgHudNative_GetBackingScale</c> (reads
+        /// the KSP NSWindow directly). If that returns 0 or throws
+        /// (plugin absent on non-macOS until we port it), fall back
+        /// to <c>Screen.dpi / 96</c>. Clamped to [0.5, 3.0] so a
+        /// broken DPI reading can't produce an unrenderably large
+        /// viewport.
+        /// </summary>
+        private static float ResolveDeviceScale()
+        {
+            try
+            {
+                float s = NativeBridge.DgHudNative_GetBackingScale();
+                if (s > 0.0f)
+                {
+                    return Mathf.Clamp(s, 0.5f, 3.0f);
+                }
+            }
+            catch (Exception e)
+            {
+                // DllNotFound on non-macOS, EntryPointNotFound if an
+                // older plugin is deployed. Non-fatal.
+                UDebug.Log(LogPrefix + "native backing-scale probe failed (" +
+                    e.GetType().Name + "); using Screen.dpi fallback");
+            }
+            float dpi = Screen.dpi;
+            if (dpi > 0f)
+            {
+                return Mathf.Clamp(dpi / 96f, 0.5f, 3.0f);
+            }
+            return 1.0f;
         }
 
         private static bool PortInUse(int port)

@@ -20,6 +20,10 @@
   -webkit-backdrop-filter: blur(12px) saturate(120%);
   animation: panelIn 0.8s cubic-bezier(0.2, 0.8, 0.25, 1) backwards;
   animation-delay: 0.42s;
+  /* Proportional shrink to ~2/3. Scales layout + paint together
+     so padding, font-size, gauge heights, and the engine-map
+     aspect all track without per-value retuning. */
+  zoom: 0.67;
 }
 
 /* -----------------------------------------------------------

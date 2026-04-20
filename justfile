@@ -79,7 +79,7 @@ native-build-darwin:
     arches="-arch x86_64 -arch arm64"
     cxxflags="-ObjC++ -std=c++17 -fobjc-arc -fPIC -O2 $arches \
               -Wall -Wextra -Wno-unused-parameter -I$incdir"
-    frameworks="-framework Foundation -framework Metal \
+    frameworks="-framework Foundation -framework AppKit -framework Metal \
                 -framework OpenGL -framework IOSurface \
                 -framework CoreFoundation"
 
