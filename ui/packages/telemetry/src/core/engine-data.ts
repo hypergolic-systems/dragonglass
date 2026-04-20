@@ -13,7 +13,12 @@
  * something meaningful moved.
  */
 
-export type EngineStatus = 'burning' | 'flameout' | 'failed' | 'shutdown';
+export type EngineStatus =
+  | 'burning'
+  | 'idle'
+  | 'flameout'
+  | 'failed'
+  | 'shutdown';
 
 export interface EnginePoint {
   /** Stable per-engine id. Stringified KSP `Part.flightID`. */

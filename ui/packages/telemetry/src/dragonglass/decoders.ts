@@ -105,11 +105,11 @@ export function decodeFlight(raw: unknown): FlightData {
 }
 
 // Engine topic. Wire: [vesselId, [ [id, mapX, mapY, status, maxThrust], ... ]]
-// Status byte 0=burning, 1=flameout, 2=failed, 3=shutdown — mirror of
-// EngineTopic.Classify on the KSP side.
+// Status byte 0=burning, 1=flameout, 2=failed, 3=shutdown, 4=idle —
+// mirror of EngineTopic.Classify on the KSP side.
 type EngineWire = [
-  string,                                                        // vesselId
-  Array<[string, number, number, 0 | 1 | 2 | 3, number]>,        // engines
+  string,                                                            // vesselId
+  Array<[string, number, number, 0 | 1 | 2 | 3 | 4, number]>,        // engines
 ];
 
 const ENGINE_STATUS: readonly EngineStatus[] = [
@@ -117,6 +117,7 @@ const ENGINE_STATUS: readonly EngineStatus[] = [
   'flameout',
   'failed',
   'shutdown',
+  'idle',
 ];
 
 // Engines array gets replaced wholesale each frame so consumers'

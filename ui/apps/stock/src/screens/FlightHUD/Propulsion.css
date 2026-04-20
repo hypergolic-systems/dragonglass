@@ -338,6 +338,14 @@
   animation-delay: calc(var(--i, 0) * -180ms);
 }
 
+/* Idle: activated and healthy but commanded throttle is zero. Same
+   teal ring as burning so the engine still reads as available;
+   the dot stays hidden because nothing is firing. */
+.prop__engine--idle .prop__engine-ring {
+  stroke: var(--accent);
+  stroke-width: 0.018;
+}
+
 /* Flameout: outlined amber ring, no dot — the unlit radio-button
    form in a warning colour. */
 .prop__engine--flameout .prop__engine-ring {

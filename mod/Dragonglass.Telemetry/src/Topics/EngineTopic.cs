@@ -20,11 +20,18 @@
 // natural "engine map" orientation. Units: meters.
 //
 // Status byte:
-//   0 = burning   (ignited, producing non-zero thrust)
-//   1 = flameout  (ignited but starved of propellant)
+//   0 = burning   (activated, producing non-zero thrust)
+//   1 = flameout  (activated but starved of propellant)
 //   2 = failed    (involuntarily off — best-effort; stock KSP has
 //                  no first-class damage state, so we infer)
 //   3 = shutdown  (off because it hasn't been staged yet / idle)
+//   4 = idle      (activated and healthy but commanded throttle is
+//                  zero — engine is ready to fire, just not
+//                  currently producing thrust)
+//
+// "activated" here is KSP's `ModuleEngines.EngineIgnited` — the
+// engine has been turned on by staging or an action group, not
+// that the bell is literally combusting fuel.
 //
 // Wire format (positional array):
 //   data: [vesselId, [ [id, mapX, mapY, status, maxThrust], ... ]]
@@ -114,6 +121,7 @@ namespace Dragonglass.Telemetry.Topics
         {
             if (eng.EngineIgnited && eng.flameout) return 1;       // flameout
             if (eng.EngineIgnited && eng.finalThrust > 0f) return 0; // burning
+            if (eng.EngineIgnited) return 4;                       // idle (armed, throttle 0)
             if (!eng.EngineIgnited && p.State == PartStates.IDLE) return 3; // shutdown
             return 2; // failed / involuntarily off — best-effort
         }
