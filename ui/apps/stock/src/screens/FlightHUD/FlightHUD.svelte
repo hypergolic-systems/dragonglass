@@ -11,11 +11,22 @@
   const s = useFlightData();
   const ops = useFlightOps();
 
-  // Derived speeds: surface-relative speed (shown by default on the
-  // tape) and orbital speed (available for a future SURFACE/ORBIT
-  // toggle). Reading fields off the reactive `s` proxy inside $derived
-  // makes the tape re-render only when the vector actually changes.
-  const surfaceSpeed = $derived(s.surfaceVelocity.length());
+  // Speed tape is driven by whichever velocity reference KSP's own
+  // speed-display mode has selected (SURFACE / ORBIT / TARGET). The
+  // label mirrors that — pilot muscle memory is built around the
+  // stock readout, so the tape must agree with the mode the pilot
+  // sees elsewhere in the game.
+  const speedVector = $derived(
+    s.speedDisplayMode === 'orbit' ? s.orbitalVelocity
+    : s.speedDisplayMode === 'target' ? s.targetVelocity
+    : s.surfaceVelocity,
+  );
+  const speed = $derived(speedVector.length());
+  const speedLabel = $derived(
+    s.speedDisplayMode === 'orbit' ? 'ORBIT'
+    : s.speedDisplayMode === 'target' ? 'TARGET'
+    : 'SURFACE',
+  );
 </script>
 
 <div class="hud hud--navball-only">
@@ -38,8 +49,8 @@
       <Navball />
       <CurvedTape
         side="left"
-        value={surfaceSpeed}
-        modeLabel="SURFACE"
+        value={speed}
+        modeLabel={speedLabel}
         scale={SPEED_SCALE}
         formatReadout={formatSurfaceSpeed}
       />

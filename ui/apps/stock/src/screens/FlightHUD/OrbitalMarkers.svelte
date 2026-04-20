@@ -34,8 +34,13 @@
   // resolved either — we hide those four and keep only
   // prograde/retrograde. Velocity near zero hides everything.
   //
-  // We use ORBITAL velocity for prograde/retrograde by default. A
-  // future SURFACE/ORBIT mode toggle would swap in surfaceVelocity.
+  // Prograde/retrograde track whatever velocity reference KSP's
+  // speed-display mode has selected — orbital, surface, or target-
+  // relative. That keeps the marker consistent with the speed tape
+  // and with the pilot's mental frame of reference. Normal and
+  // radial markers are still orbital-derived; they only have a
+  // meaningful interpretation in orbital mechanics and stock KSP
+  // hides them outside orbit mode too.
 
   import { T, useTask } from '@threlte/core';
   import * as THREE from 'three';
@@ -114,44 +119,80 @@
   }
 
   useTask(() => {
-    // Orbital-velocity-derived markers (prograde/retrograde/normal/radial).
-    prograde.copy(flight.orbitalVelocity);
-    const speed = prograde.length();
-    if (speed < MIN_VEL) {
+    // Prograde/retrograde follow the active speed-display mode.
+    // Target mode explicitly does not produce the orbital marker
+    // pair here — target-prograde/retrograde below handles that
+    // case on its own subframe.
+    const progradeSource =
+      flight.speedDisplayMode === 'orbit' ? flight.orbitalVelocity
+      : flight.speedDisplayMode === 'surface' ? flight.surfaceVelocity
+      : null;
+
+    // Normal / radial markers always derive from orbital velocity —
+    // they're orbital-mechanics concepts and stock KSP hides them
+    // outside orbit mode too.
+    const showNormalRadial = flight.speedDisplayMode === 'orbit';
+
+    if (progradeSource === null) {
       setVisible('prograde', null);
       setVisible('retrograde', null);
+    } else {
+      prograde.copy(progradeSource);
+      const speed = prograde.length();
+      if (speed < MIN_VEL) {
+        setVisible('prograde', null);
+        setVisible('retrograde', null);
+      } else {
+        prograde.divideScalar(speed);
+        retrograde.copy(prograde).negate();
+        setVisible('prograde', prograde);
+        setVisible('retrograde', retrograde);
+      }
+    }
+
+    if (!showNormalRadial) {
       setVisible('normal', null);
       setVisible('anti-normal', null);
       setVisible('radial-out', null);
       setVisible('radial-in', null);
     } else {
-      prograde.divideScalar(speed);
-      retrograde.copy(prograde).negate();
-      setVisible('prograde', prograde);
-      setVisible('retrograde', retrograde);
-
-      // normal = v̂ × r̂. Collapses if velocity is parallel to radial
-      // (vertical ascent / descent). In that case we can't derive the
-      // radial markers either; hide the whole normal-radial subframe.
-      normal.crossVectors(prograde, RADIAL_UP);
-      const normalMag = normal.length();
-      if (normalMag < MIN_NORMAL) {
+      // Orbital-velocity basis for normal / radial. Independent of
+      // the prograde-marker visibility decision above — in orbit
+      // mode prograde uses the same source, but we recompute here
+      // so surface/target modes would still work cleanly if this
+      // branch were ever reused.
+      normal.copy(flight.orbitalVelocity);
+      const obtSpeed = normal.length();
+      if (obtSpeed < MIN_VEL) {
         setVisible('normal', null);
         setVisible('anti-normal', null);
         setVisible('radial-out', null);
         setVisible('radial-in', null);
       } else {
-        normal.divideScalar(normalMag);
-        antiNormal.copy(normal).negate();
-        setVisible('normal', normal);
-        setVisible('anti-normal', antiNormal);
+        const vHat = normal.clone().divideScalar(obtSpeed);
+        // normal = v̂ × r̂. Collapses if velocity is parallel to
+        // radial (vertical ascent / descent); hide the normal-
+        // radial subframe in that case.
+        normal.crossVectors(vHat, RADIAL_UP);
+        const normalMag = normal.length();
+        if (normalMag < MIN_NORMAL) {
+          setVisible('normal', null);
+          setVisible('anti-normal', null);
+          setVisible('radial-out', null);
+          setVisible('radial-in', null);
+        } else {
+          normal.divideScalar(normalMag);
+          antiNormal.copy(normal).negate();
+          setVisible('normal', normal);
+          setVisible('anti-normal', antiNormal);
 
-        // radial-out = normal × prograde, already unit since both
-        // arguments are unit and orthogonal.
-        radialOut.crossVectors(normal, prograde);
-        radialIn.copy(radialOut).negate();
-        setVisible('radial-out', radialOut);
-        setVisible('radial-in', radialIn);
+          // radial-out = normal × v̂, already unit since both
+          // arguments are unit and orthogonal.
+          radialOut.crossVectors(normal, vHat);
+          radialIn.copy(radialOut).negate();
+          setVisible('radial-out', radialOut);
+          setVisible('radial-in', radialIn);
+        }
       }
     }
 

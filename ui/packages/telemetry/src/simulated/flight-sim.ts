@@ -8,7 +8,7 @@
 // cost at 60 fps is negligible.
 
 import { Quaternion, Vector3 } from 'three';
-import type { FlightData } from '../core/flight-data';
+import type { FlightData, SpeedDisplayMode } from '../core/flight-data';
 import {
   ENGINES_MAX_THRUST,
   STAGE_IDX_SIM,
@@ -67,6 +67,7 @@ export class FlightSimulation {
   private throttle = 2 / 3;
   private sas = false;
   private rcs = false;
+  private speedMode: SpeedDisplayMode = 'surface';
   private readonly angVel = { x: 0, y: 0, z: 0 };
   private readonly orientation = new Quaternion();
 
@@ -84,6 +85,13 @@ export class FlightSimulation {
 
   setRcs(enabled: boolean): void {
     this.rcs = enabled;
+  }
+
+  cycleSpeedMode(): void {
+    this.speedMode =
+      this.speedMode === 'orbit' ? 'surface'
+      : this.speedMode === 'surface' ? 'target'
+      : 'orbit';
   }
 
   tick(dt: number): FlightData {
@@ -136,6 +144,7 @@ export class FlightSimulation {
       stageIdx: STAGE_IDX_SIM,
       deltaVStage: STAGE_DELTA_V_SIM,
       twrStage: STAGE_TWR_SIM,
+      speedDisplayMode: this.speedMode,
     };
   }
 }

@@ -33,7 +33,8 @@
 // Wire format (positional array):
 //   data: [vesselId, altAsl, altRadar, [vSurf...], [vOrb...],
 //          throttle, sas, rcs, [qx,qy,qz,qw], [wx,wy,wz], vTgt?,
-//          deltaVMission, currentThrust, stageIdx, deltaVStage, twrStage]
+//          deltaVMission, currentThrust, stageIdx, deltaVStage, twrStage,
+//          speedMode]
 //
 //     vesselId      : string GUID of the active vessel
 //     altAsl        : altitude above sea level (meters)
@@ -64,6 +65,13 @@
 //                     yet run or returns no result for the stage.
 //     twrStage      : thrust-to-weight ratio for the current stage at
 //                     current conditions. 0 when unavailable.
+//     speedMode     : byte, KSP's current speed-display mode.
+//                       0 = orbit    (vOrb is the "primary" velocity)
+//                       1 = surface  (vSurf is the "primary" velocity)
+//                       2 = target   (vTgt is the "primary" velocity)
+//                     Drives the client's speed-tape readout + the
+//                     prograde/retrograde marker source on the
+//                     navball.
 
 using System.Collections.Generic;
 using System.Text;
@@ -214,6 +222,16 @@ namespace Dragonglass.Telemetry.Topics
             }
         }
 
+        // Stock KSP speed-display mode. Encoded as the same 0/1/2 byte
+        // the wire uses so the setter can compare by value without
+        // round-tripping through the enum.
+        private byte _speedMode = 1; // default matches FlightGlobals.SpeedDisplayModes.Surface
+        public byte SpeedMode
+        {
+            get { return _speedMode; }
+            set { if (_speedMode != value) { _speedMode = value; MarkDirty(); } }
+        }
+
         private void Update()
         {
             if (FlightGlobals.fetch == null) return;
@@ -279,6 +297,11 @@ namespace Dragonglass.Telemetry.Topics
             StageIdx = currentStage;
             DeltaVStage = stageDv;
             TwrStage = stageTwr;
+
+            // Stock speed-display mode. The enum values are
+            // Orbit=0, Surface=1, Target=2 — we ship the raw byte
+            // so the client can decode without knowing the enum.
+            SpeedMode = (byte)FlightGlobals.speedDisplayMode;
 
             // Summed instantaneous thrust across every engine on the
             // active vessel, in kN. Flamed-out / shut-down engines
@@ -408,6 +431,8 @@ namespace Dragonglass.Telemetry.Topics
             Json.WriteDouble(sb, _deltaVStage);
             sb.Append(',');
             Json.WriteFloat(sb, _twrStage);
+            sb.Append(',');
+            sb.Append(_speedMode);
 
             sb.Append(']');
         }

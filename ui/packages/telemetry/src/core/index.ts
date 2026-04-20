@@ -1,7 +1,7 @@
 export { type Topic, type Ksp, topic } from './ksp';
 export { type ClockData } from './clock-data';
 export { type GameData } from './game-data';
-export { type FlightData } from './flight-data';
+export { type FlightData, type SpeedDisplayMode } from './flight-data';
 export {
   type ResourceId,
   type Storage,

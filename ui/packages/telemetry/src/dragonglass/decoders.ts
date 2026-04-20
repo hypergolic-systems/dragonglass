@@ -13,7 +13,7 @@
 import { Quaternion, Vector3 } from 'three';
 import type { ClockData } from '../core/clock-data';
 import type { GameData } from '../core/game-data';
-import type { FlightData } from '../core/flight-data';
+import type { FlightData, SpeedDisplayMode } from '../core/flight-data';
 import type {
   EngineData,
   EnginePoint,
@@ -40,7 +40,10 @@ type FlightWire = [
   number,                              // stageIdx
   number,                              // deltaVStage (m/s)
   number,                              // twrStage
+  0 | 1 | 2,                           // speedDisplayMode byte (orbit/surface/target)
 ];
+
+const SPEED_DISPLAY_MODE: readonly SpeedDisplayMode[] = ['orbit', 'surface', 'target'];
 
 const clockScratch: ClockData = { ut: 0, met: null };
 
@@ -68,6 +71,7 @@ const flightScratch: FlightData = {
   stageIdx: -1,
   deltaVStage: 0,
   twrStage: 0,
+  speedDisplayMode: 'surface',
 };
 
 export function decodeClock(raw: unknown): ClockData {
@@ -114,6 +118,7 @@ export function decodeFlight(raw: unknown): FlightData {
   flightScratch.stageIdx = a[13];
   flightScratch.deltaVStage = a[14];
   flightScratch.twrStage = a[15];
+  flightScratch.speedDisplayMode = SPEED_DISPLAY_MODE[a[16]];
   return flightScratch;
 }
 

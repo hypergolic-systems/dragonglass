@@ -13,7 +13,7 @@
 import { Quaternion, Vector3 } from 'three';
 import { getKsp } from './context';
 import { FlightTopic } from '../core/topics';
-import type { FlightData } from '../core/flight-data';
+import type { FlightData, SpeedDisplayMode } from '../core/flight-data';
 
 // Internal writable shape — assignments are the store's concern,
 // not the consumer's. The readonly cast at the return type keeps
@@ -36,6 +36,7 @@ interface MutableFlightData {
   stageIdx: number;
   deltaVStage: number;
   twrStage: number;
+  speedDisplayMode: SpeedDisplayMode;
 }
 
 function defaults(): MutableFlightData {
@@ -57,6 +58,7 @@ function defaults(): MutableFlightData {
     stageIdx: -1,
     deltaVStage: 0,
     twrStage: 0,
+    speedDisplayMode: 'surface',
   };
 }
 
@@ -88,6 +90,7 @@ export function useFlightData(): FlightData {
       store.stageIdx = frame.stageIdx;
       store.deltaVStage = frame.deltaVStage;
       store.twrStage = frame.twrStage;
+      store.speedDisplayMode = frame.speedDisplayMode;
       // Nested class instances (Vector3 / Quaternion) — replace
       // the reference. Svelte doesn't deep-proxy class instances,
       // so copying into the existing instance wouldn't notify

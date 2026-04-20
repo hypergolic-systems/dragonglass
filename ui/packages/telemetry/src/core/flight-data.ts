@@ -1,5 +1,7 @@
 import type { Quaternion, Vector3 } from 'three';
 
+export type SpeedDisplayMode = 'orbit' | 'surface' | 'target';
+
 /**
  * Live flight telemetry for the active vessel. Shape mirrors the KSP
  * server's `flight` topic wire format.
@@ -57,4 +59,10 @@ export interface FlightData {
   /** Stage thrust-to-weight ratio at current conditions. 0 when
    *  unavailable. */
   readonly twrStage: number;
+  /** Stock KSP speed-display mode. Drives the speed tape's readout
+   *  and label, and the navball's prograde/retrograde marker source:
+   *    'orbit'   → orbitalVelocity
+   *    'surface' → surfaceVelocity
+   *    'target'  → targetVelocity (meaningful only when hasTarget). */
+  readonly speedDisplayMode: SpeedDisplayMode;
 }

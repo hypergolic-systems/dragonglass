@@ -107,11 +107,15 @@ export class SimulatedKsp implements Ksp {
 
     const down = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
-      if (['w', 'a', 's', 'd', 'q', 'e', 't'].includes(k)) {
+      if (['w', 'a', 's', 'd', 'q', 'e', 't', 'm'].includes(k)) {
         e.preventDefault();
       }
       if (k === 't') {
         sim.resetPending = true;
+        return;
+      }
+      if (k === 'm') {
+        sim.cycleSpeedMode();
         return;
       }
       sim.keys.add(k);
