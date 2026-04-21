@@ -280,21 +280,35 @@ namespace Dragonglass.Telemetry.Topics
                 : 0.0;
 
             // Per-stage Δv / TWR from the same stock simulator. Pulled
-            // off `VesselDeltaV.GetStage(currentStage)` which KSP keeps
-            // cached; we don't trigger the simulation ourselves.
-            int currentStage = v.currentStage;
+            // off `VesselDeltaV.GetStage(...)` which KSP keeps cached;
+            // we don't trigger the simulation ourselves.
+            //
+            // `v.currentStage` is stock KSP's "about to fire" pointer,
+            // but on the launchpad it often lands on a stage that
+            // holds only launch clamps / decouplers — no engines, so
+            // `GetStage` returns a zero-Δv info (or none at all) and
+            // the panel shows a dash. Callers don't care about a
+            // clamp-release pseudostage; they want to see the upcoming
+            // real burn. Fall through to the highest-numbered stage
+            // with non-zero thrust in that case.
+            int reportStageIdx = v.currentStage;
             double stageDv = 0;
             float stageTwr = 0f;
             if (v.VesselDeltaV != null)
             {
-                DeltaVStageInfo stage = v.VesselDeltaV.GetStage(currentStage);
+                DeltaVStageInfo stage = v.VesselDeltaV.GetStage(v.currentStage);
+                if (stage == null || stage.thrustActual <= 0f)
+                {
+                    stage = FindNextFiringStage(v.VesselDeltaV);
+                }
                 if (stage != null)
                 {
+                    reportStageIdx = stage.stage;
                     stageDv = stage.deltaVActual;
                     stageTwr = stage.TWRActual;
                 }
             }
-            StageIdx = currentStage;
+            StageIdx = reportStageIdx;
             DeltaVStage = stageDv;
             TwrStage = stageTwr;
 
@@ -352,6 +366,25 @@ namespace Dragonglass.Telemetry.Topics
         // horizontal plane yields zero. We fall back to identity;
         // heading will be undefined at the pole while pitch and roll
         // still make sense.
+        // Highest-numbered operating stage with non-zero thrust — i.e.
+        // the next stage that will actually do something. Used as a
+        // launchpad-friendly fallback when stock's `currentStage`
+        // pointer lands on an engine-less pseudostage. Returns null
+        // when nothing on the vessel has thrust.
+        private static DeltaVStageInfo FindNextFiringStage(VesselDeltaV vdv)
+        {
+            List<DeltaVStageInfo> stages = vdv.OperatingStageInfo;
+            if (stages == null) return null;
+            DeltaVStageInfo best = null;
+            for (int i = 0; i < stages.Count; i++)
+            {
+                DeltaVStageInfo s = stages[i];
+                if (s == null || s.thrustActual <= 0f) continue;
+                if (best == null || s.stage > best.stage) best = s;
+            }
+            return best;
+        }
+
         private static Quaternion SurfaceRotation(Vessel v)
         {
             Vector3 up = v.upAxis;
