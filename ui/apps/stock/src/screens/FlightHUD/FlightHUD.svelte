@@ -4,6 +4,7 @@
   import CurvedTape from './CurvedTape.svelte';
   import NavballIndicator from './NavballIndicator.svelte';
   import Propulsion from './Propulsion.svelte';
+  import StagingStack from './StagingStack.svelte';
   import { formatSurfaceSpeed, formatAltitude } from './format';
   import { SPEED_SCALE, ALTITUDE_SCALE } from './tape-scales';
   import './FlightHUD.css';
@@ -31,13 +32,12 @@
 
 <div class="hud hud--navball-only">
   <div class="navslot navslot--bottom-left">
-    <!-- Left-side staging stack. Propulsion is the bottom-most
-         occupant today; future staging / fuel / engine-cluster
-         displays stack upward on top of it (column-reverse flex,
-         anchored to the bottom edge so the row stays aligned with
-         the navball baseline). -->
+    <!-- Left-side staging stack. Propulsion sits at the bottom
+         (DOM-first under column-reverse); StagingStack stacks above
+         it showing one card per operating stage. -->
     <div class="staging-stack">
       <Propulsion />
+      <StagingStack />
     </div>
     <!-- Navball cluster — explicit 488×488 wrapper so the tape and
          indicator SVGs (which are absolute-positioned inside) still

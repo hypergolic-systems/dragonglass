@@ -21,9 +21,17 @@ export {
   type EngineGroup,
 } from './engine-data';
 export {
+  type StageData,
+  type StageEntry,
+  type StagingPart,
+  type StagingPartKind,
+} from './stage-data';
+export { type StageOps } from './stage-ops';
+export {
   ClockTopic,
   GameTopic,
   FlightTopic,
   AssemblyTopic,
   EngineTopic,
+  StageTopic,
 } from './topics';

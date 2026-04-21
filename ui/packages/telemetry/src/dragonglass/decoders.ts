@@ -20,6 +20,12 @@ import type {
   EnginePropellant,
   EngineStatus,
 } from '../core/engine-data';
+import type {
+  StageData,
+  StageEntry,
+  StagingPart,
+  StagingPartKind,
+} from '../core/stage-data';
 
 type ClockWire = [number, number | null];
 type GameWire = [string, string | null, number];
@@ -194,4 +200,57 @@ export function decodeEngines(raw: unknown): EngineData {
   }
   engineScratch.engines = out;
   return engineScratch;
+}
+
+// Stage topic. Wire:
+//   [vesselId, currentStageIdx, [
+//     [stageNum, dvActual, twrActual,
+//      [[kind, persistentId, iconName, cousinsInStage], ...]
+//     ], ...
+//   ]]
+// `kind` is one of: 'engine' | 'decoupler' | 'parachute' | 'clamp' |
+// 'other' — the C# side classifies by module scan.
+// `cousinsInStage` is the persistentIds of symmetry cousins sharing
+// this stage; empty for singletons.
+type StagingPartWire = [string, string, string, string[]];
+type StageEntryWire = [number, number, number, StagingPartWire[]];
+type StageWire = [string, number, StageEntryWire[]];
+
+// Stages array is replaced wholesale each frame so consumers'
+// `$derived` computations re-run on material change. Envelope stays a
+// scratch singleton for consistency with the other decoders.
+const stageScratch: StageData = {
+  vesselId: '',
+  currentStageIdx: -1,
+  stages: [],
+};
+
+export function decodeStage(raw: unknown): StageData {
+  const a = raw as StageWire;
+  stageScratch.vesselId = a[0];
+  stageScratch.currentStageIdx = a[1];
+  const src = a[2];
+  const out = new Array<StageEntry>(src.length);
+  for (let i = 0; i < src.length; i++) {
+    const s = src[i];
+    const partsRaw = s[3];
+    const parts = new Array<StagingPart>(partsRaw.length);
+    for (let j = 0; j < partsRaw.length; j++) {
+      const p = partsRaw[j];
+      parts[j] = {
+        kind: p[0] as StagingPartKind,
+        persistentId: p[1],
+        iconName: p[2],
+        cousinsInStage: p[3],
+      };
+    }
+    out[i] = {
+      stageNum: s[0],
+      deltaVActual: s[1],
+      twrActual: s[2],
+      parts,
+    };
+  }
+  stageScratch.stages = out;
+  return stageScratch;
 }

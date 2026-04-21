@@ -18,6 +18,15 @@
   setKsp(ksp);
 
   const game = useGame();
+
+  // Suppress the browser's default right-click context menu across
+  // the whole HUD. CEF's built-in menu (Inspect Element, Copy, etc.)
+  // is irrelevant in a KSP overlay and would visually conflict with
+  // our in-HUD context menus. Components that want a menu on
+  // right-click handle `contextmenu` themselves (with their own
+  // preventDefault in line); this listener only catches the ones
+  // that don't so nothing leaks through.
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
 </script>
 
 {#if game.scene === 'FLIGHT'}
