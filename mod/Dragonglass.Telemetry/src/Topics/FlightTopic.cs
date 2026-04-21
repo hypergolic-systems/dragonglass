@@ -283,21 +283,27 @@ namespace Dragonglass.Telemetry.Topics
             // off `VesselDeltaV.GetStage(...)` which KSP keeps cached;
             // we don't trigger the simulation ourselves.
             //
-            // `v.currentStage` is stock KSP's "about to fire" pointer,
-            // but on the launchpad it often lands on a stage that
-            // holds only launch clamps / decouplers — no engines, so
-            // `GetStage` returns a zero-Δv info (or none at all) and
-            // the panel shows a dash. Callers don't care about a
-            // clamp-release pseudostage; they want to see the upcoming
-            // real burn. Fall through to the highest-numbered stage
-            // with non-zero thrust in that case.
+            // Once in flight, `v.currentStage` is the truth — if it
+            // points to a genuinely engineless stage (e.g. a coasting
+            // stage after a burnout) that's real information and the
+            // panel should read 0 Δv, not paper over it with the next
+            // upcoming stage.
+            //
+            // The launchpad is the one exception: before staging has
+            // happened at all, `currentStage` can point to a pseudo-
+            // stage that just holds launch clamps / decouplers. There
+            // is no active stage yet and the pilot wants to see the
+            // upcoming launch burn's numbers. Detect this via
+            // `Situations.PRELAUNCH` and fall through to the highest-
+            // numbered stage with non-zero thrust in that case only.
             int reportStageIdx = v.currentStage;
             double stageDv = 0;
             float stageTwr = 0f;
             if (v.VesselDeltaV != null)
             {
                 DeltaVStageInfo stage = v.VesselDeltaV.GetStage(v.currentStage);
-                if (stage == null || stage.thrustActual <= 0f)
+                if ((stage == null || stage.thrustActual <= 0f)
+                    && v.situation == Vessel.Situations.PRELAUNCH)
                 {
                     stage = FindNextFiringStage(v.VesselDeltaV);
                 }
@@ -368,9 +374,10 @@ namespace Dragonglass.Telemetry.Topics
         // still make sense.
         // Highest-numbered operating stage with non-zero thrust — i.e.
         // the next stage that will actually do something. Used as a
-        // launchpad-friendly fallback when stock's `currentStage`
-        // pointer lands on an engine-less pseudostage. Returns null
-        // when nothing on the vessel has thrust.
+        // prelaunch-only fallback when stock's `currentStage` pointer
+        // lands on an engine-less pseudostage (clamps / decouplers
+        // only) before any staging has occurred. Returns null when
+        // nothing on the vessel has thrust.
         private static DeltaVStageInfo FindNextFiringStage(VesselDeltaV vdv)
         {
             List<DeltaVStageInfo> stages = vdv.OperatingStageInfo;
