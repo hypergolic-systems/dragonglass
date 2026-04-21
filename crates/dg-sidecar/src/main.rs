@@ -125,15 +125,31 @@ fn start_static_server(root_dir: &Path) -> Result<String> {
 /// handled in the drain block instead — they need extra state (the
 /// render handler / canvas bridge for resize, the cross-slot URL
 /// accumulator and browser handle for navigate).
-fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent) {
+///
+/// Coordinate space. The plugin writes mouse coords in **physical
+/// pixels** (Unity's Screen.width / Input.mousePosition, mapped into
+/// the overlay's physical extent — which matches the CEF viewport
+/// size we tell the plugin on resize). But CEF's OSR input API
+/// expects **DIP / CSS pixels**, because we divide physical dims by
+/// `device_scale_factor` in `view_rect` / `screen_info` so the page
+/// sees a DIP-sized canvas with a `devicePixelRatio` equal to the
+/// scale. So we divide the incoming physical coords by the scale
+/// factor before handing them to CEF — without this, on a 2× Retina
+/// display every click lands at 2× the cursor's actual DIP position
+/// and routes to an element off-screen (or nothing at all).
+fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent, device_scale: f32) {
     use dg_shm::layout::{
         INPUT_BTN_LEFT, INPUT_BTN_MIDDLE, INPUT_BTN_RIGHT, INPUT_MOUSE_DOWN, INPUT_MOUSE_MOVE,
         INPUT_MOUSE_UP, INPUT_MOUSE_WHEEL,
     };
 
+    let scale = device_scale.max(0.1);
+    let dip_x = (evt.x as f32 / scale).round() as i32;
+    let dip_y = (evt.y as f32 / scale).round() as i32;
+
     let mouse_event = cef::MouseEvent {
-        x: evt.x,
-        y: evt.y,
+        x: dip_x,
+        y: dip_y,
         modifiers: 0,
     };
 
@@ -398,6 +414,7 @@ fn main() -> Result<()> {
                     use dg_shm::layout::{
                         INPUT_NAVIGATE, INPUT_NAVIGATE_CHUNK, INPUT_RESIZE, MAX_NAV_URL_BYTES,
                     };
+                    let device_scale = render_inner_main.device_scale();
                     input_ring.drain(|evt| match evt.kind {
                         INPUT_RESIZE => {
                             nav = None;
@@ -431,7 +448,7 @@ fn main() -> Result<()> {
                                 eprintln!("nav: stray chunk without header — dropping");
                             }
                         },
-                        _ => inject_input_event(&host, evt),
+                        _ => inject_input_event(&host, evt, device_scale),
                     });
                 }
             }

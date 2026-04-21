@@ -103,8 +103,10 @@ impl KspRenderHandlerInner {
     }
 
     /// Current device scale factor. Read by `view_rect` (to divide
-    /// physical dims into DIP) and `screen_info` (to report to CEF).
-    fn device_scale(&self) -> f32 {
+    /// physical dims into DIP), `screen_info` (to report to CEF),
+    /// and `main.rs` input-dispatch to scale physical-pixel mouse
+    /// coords from the plugin into DIP for CEF.
+    pub fn device_scale(&self) -> f32 {
         f32::from_bits(self.device_scale_bits.load(Ordering::Acquire))
     }
 
