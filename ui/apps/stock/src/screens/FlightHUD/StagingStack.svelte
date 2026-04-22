@@ -126,40 +126,73 @@
 
   // ---- Drag-and-drop -----------------------------------------
   //
-  // Model: left-button pointerdown on a part icon puts us in a
-  // tentative drag state (not yet active). Any pointer movement past
-  // DRAG_THRESHOLD flips it to active — this way a plain click on an
-  // icon doesn't accidentally register as a drag. Movement and
-  // release are tracked via document-level listeners so we keep
-  // receiving events even if the cursor leaves the stack area.
+  // Two gesture flavours share the same pointerdown threshold +
+  // document-level move/up tracking:
   //
-  // Drag only ever moves a part into an EXISTING stage. Creating
-  // new stages is the right-click menu's job — drag's tight drop
-  // tolerances made accidental stage creation too easy and the
-  // explicit menu path is unambiguous.
+  //   'part'   — the user pressed on a part icon. Drop target is a
+  //              whole stage card; releasing moves the part (or its
+  //              symmetry group, depending on the render item's
+  //              `isConsolidated` flag) into that stage via movePart.
+  //
+  //   'stage'  — the user pressed on a stage card's body, outside
+  //              any icon. Drop target is an insertion POINT
+  //              between cards (top half of a card → above it,
+  //              bottom half → below; outside any card but over
+  //              the stack's x extent → top/bottom of the stack).
+  //              Releasing calls moveStage.
+  //
+  // Creating new stages is right-click-menu-only for parts —
+  // dragging a part never creates stages. Dragging a stage is
+  // reordering only; no new stage comes into existence.
 
-  interface DragState {
-    item: PartRenderItem;
-    ghostX: number;
-    ghostY: number;
-    startX: number;
-    startY: number;
-    active: boolean;
-    target: { stageNum: number } | null;
-  }
+  type DragState =
+    | {
+        kind: 'part';
+        item: PartRenderItem;
+        ghostX: number;
+        ghostY: number;
+        startX: number;
+        startY: number;
+        active: boolean;
+        target: { stageNum: number } | null;
+      }
+    | {
+        kind: 'stage';
+        stage: StageEntry;
+        ghostX: number;
+        ghostY: number;
+        startX: number;
+        startY: number;
+        active: boolean;
+        target: { insertPos: number } | null;
+      };
 
   const DRAG_THRESHOLD_PX = 5;
 
   let drag = $state<DragState | null>(null);
 
-  // Per-card drop hint driven by the current drag target.
-  function dropHintFor(stage: StageEntry): 'on' | null {
+  // Per-card drop-hint computation. Part drag lights up the card
+  // the cursor is on; stage drag lights up the insertion edge.
+  function dropHintFor(stage: StageEntry): 'on' | 'insert-above' | 'insert-below' | null {
     if (!drag || !drag.active || !drag.target) return null;
-    return drag.target.stageNum === stage.stageNum ? 'on' : null;
+    if (drag.kind === 'part') {
+      return drag.target.stageNum === stage.stageNum ? 'on' : null;
+    }
+    // Stage drag — render the insertion bar on the top of the card
+    // whose stageNum equals insertPos, or on the bottom of the last
+    // card when insertPos is past the end.
+    const insertPos = drag.target.insertPos;
+    if (insertPos === stage.stageNum) return 'insert-above';
+    const maxStageNum = ordered.length > 0 ? ordered[ordered.length - 1].stageNum : -1;
+    if (insertPos === maxStageNum + 1 && stage.stageNum === maxStageNum) {
+      return 'insert-below';
+    }
+    return null;
   }
 
   function onPartDragStart(item: PartRenderItem, e: PointerEvent): void {
     drag = {
+      kind: 'part',
       item,
       ghostX: e.clientX,
       ghostY: e.clientY,
@@ -168,6 +201,24 @@
       active: false,
       target: null,
     };
+    beginDragListeners();
+  }
+
+  function onStageDragStart(stage: StageEntry, e: PointerEvent): void {
+    drag = {
+      kind: 'stage',
+      stage,
+      ghostX: e.clientX,
+      ghostY: e.clientY,
+      startX: e.clientX,
+      startY: e.clientY,
+      active: false,
+      target: null,
+    };
+    beginDragListeners();
+  }
+
+  function beginDragListeners(): void {
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', onDragEnd);
     document.addEventListener('pointercancel', onDragEnd);
@@ -185,7 +236,11 @@
       }
     }
     if (drag.active) {
-      drag.target = computeDropTarget(e.clientX, e.clientY);
+      if (drag.kind === 'part') {
+        drag.target = computePartDropTarget(e.clientX, e.clientY);
+      } else {
+        drag.target = computeStageDropTarget(e.clientX, e.clientY, drag.stage.stageNum);
+      }
     }
   }
 
@@ -194,19 +249,23 @@
     document.removeEventListener('pointerup', onDragEnd);
     document.removeEventListener('pointercancel', onDragEnd);
     if (drag && drag.active && drag.target) {
-      // Group flag follows the rendered item: consolidated "×N"
-      // icons move the whole symmetry set; cousin icons revealed by
-      // "Ungroup" move only themselves.
-      ops.movePart(
-        drag.item.part.persistentId,
-        drag.target.stageNum,
-        drag.item.isConsolidated,
-      );
+      if (drag.kind === 'part') {
+        // Group flag follows the rendered item: consolidated "×N"
+        // icons move the whole symmetry set; cousin icons revealed
+        // by "Ungroup" move only themselves.
+        ops.movePart(
+          drag.item.part.persistentId,
+          drag.target.stageNum,
+          drag.item.isConsolidated,
+        );
+      } else {
+        ops.moveStage(drag.stage.stageNum, drag.target.insertPos);
+      }
     }
     drag = null;
   }
 
-  function computeDropTarget(x: number, y: number): { stageNum: number } | null {
+  function computePartDropTarget(x: number, y: number): { stageNum: number } | null {
     if (!container) return null;
     const cards = Array.from(
       container.querySelectorAll<HTMLElement>('[data-stage-num]'),
@@ -218,6 +277,52 @@
       return { stageNum: Number(el.dataset.stageNum) };
     }
     return null;
+  }
+
+  // Stage-drag: figure out the insertion point from the cursor's
+  // position relative to the cards. Returns null when the move
+  // would be a no-op (insertPos equal to `from` or `from + 1`,
+  // which means the stage doesn't actually change places).
+  function computeStageDropTarget(
+    x: number,
+    y: number,
+    fromStageNum: number,
+  ): { insertPos: number } | null {
+    if (!container) return null;
+    const cards = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-stage-num]'),
+    );
+    if (cards.length === 0) return null;
+
+    const cr = container.getBoundingClientRect();
+    if (x < cr.left || x > cr.right) return null;
+
+    let insertPos: number | null = null;
+    for (const el of cards) {
+      const r = el.getBoundingClientRect();
+      if (y < r.top || y > r.bottom) continue;
+      const stageNum = Number(el.dataset.stageNum);
+      const mid = (r.top + r.bottom) / 2;
+      insertPos = y < mid ? stageNum : stageNum + 1;
+      break;
+    }
+    if (insertPos === null) {
+      // Above first or below last.
+      const firstRect = cards[0].getBoundingClientRect();
+      const lastRect = cards[cards.length - 1].getBoundingClientRect();
+      if (y < firstRect.top) {
+        insertPos = Number(cards[0].dataset.stageNum);
+      } else if (y > lastRect.bottom) {
+        insertPos = Number(cards[cards.length - 1].dataset.stageNum) + 1;
+      } else {
+        return null;
+      }
+    }
+    // No-op cases.
+    if (insertPos === fromStageNum || insertPos === fromStageNum + 1) {
+      return null;
+    }
+    return { insertPos };
   }
 </script>
 
@@ -232,6 +337,7 @@
         {onPartContext}
         {onPartHover}
         {onPartDragStart}
+        {onStageDragStart}
       />
     {/each}
   </div>
@@ -247,18 +353,30 @@
 {/if}
 
 {#if drag && drag.active}
-  <!-- Ghost preview: a small translucent copy of the dragged icon
-       pinned to the cursor. Offset so the cursor points at the
-       icon's top-left for a natural drag feel. -->
-  <div
-    class="drag-ghost drag-ghost--{drag.item.part.kind}"
-    style:left="{drag.ghostX}px"
-    style:top="{drag.ghostY}px"
-  >
-    <div class="drag-ghost__chip">
-      {drag.item.part.iconName}{drag.item.count > 1 ? ` ×${drag.item.count}` : ''}
+  <!-- Ghost preview: a small pill pinned to the cursor showing
+       what's being dragged. Offset so the cursor sits just above the
+       chip's top-left corner for a natural "grabbed" feel. -->
+  {#if drag.kind === 'part'}
+    <div
+      class="drag-ghost drag-ghost--{drag.item.part.kind}"
+      style:left="{drag.ghostX}px"
+      style:top="{drag.ghostY}px"
+    >
+      <div class="drag-ghost__chip">
+        {drag.item.part.iconName}{drag.item.count > 1 ? ` ×${drag.item.count}` : ''}
+      </div>
     </div>
-  </div>
+  {:else}
+    <div
+      class="drag-ghost drag-ghost--stage"
+      style:left="{drag.ghostX}px"
+      style:top="{drag.ghostY}px"
+    >
+      <div class="drag-ghost__chip">
+        STAGE {String(drag.stage.stageNum).padStart(2, '0')}
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -352,6 +470,7 @@
   .drag-ghost--parachute { color: var(--info); }
   .drag-ghost--clamp { color: var(--fg-mute); }
   .drag-ghost--other { color: var(--fg-dim); }
+  .drag-ghost--stage { color: var(--accent); }
 
   .drag-ghost__chip {
     text-transform: uppercase;

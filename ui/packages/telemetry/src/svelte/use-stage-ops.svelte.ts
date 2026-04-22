@@ -15,6 +15,8 @@ export function useStageOps(): StageOps {
       telemetry.send(StageTopic, 'movePart', persistentId, targetStageNum, group),
     movePartToNewStage: (persistentId, position, group) =>
       telemetry.send(StageTopic, 'movePartToNewStage', persistentId, position, group),
+    moveStage: (fromStageNum, insertPos) =>
+      telemetry.send(StageTopic, 'moveStage', fromStageNum, insertPos),
     setHighlightPart: (persistentId) =>
       telemetry.send(StageTopic, 'setHighlightPart', persistentId),
   };

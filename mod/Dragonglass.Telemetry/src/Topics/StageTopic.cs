@@ -476,6 +476,14 @@ namespace Dragonglass.Telemetry.Topics
                         DoMovePartToNewStage(mnId, mnPos, mnGroup);
                     }
                     break;
+                case "moveStage":
+                    // args: [fromStageNum, insertPos]
+                    if (TryArgInt(args, 0, out int msFrom)
+                        && TryArgInt(args, 1, out int msInsert))
+                    {
+                        DoMoveStage(msFrom, msInsert);
+                    }
+                    break;
                 case "setHighlightPart":
                     {
                         // `null` is a valid arg — clears any current
@@ -660,6 +668,63 @@ namespace Dragonglass.Telemetry.Topics
                 StageManager.SetSeparationIndices();
             }
 
+            _forceEmit = true;
+            GameEvents.StageManager.OnGUIStageSequenceModified.Fire();
+        }
+
+        // Reorder a whole stage — take every part currently at
+        // stageNum `from` and move it to insertion position `insertPos`
+        // in [0, stages.Count]. Other stages shift around it:
+        //   - If insertPos > from: stages in (from, insertPos) shift
+        //     down by one (their inverseStage decreases).
+        //   - If insertPos <= from: stages in [insertPos, from) shift
+        //     up by one (their inverseStage increases).
+        // The stage's new stageNum is `insertPos - 1` when
+        // `insertPos > from` (removing `from` first shifts the
+        // insertion index by one), else `insertPos`.
+        //
+        // Pre-launch scenario is the target use case; mid-flight
+        // reorders are legal but don't touch `_currentStage` since
+        // the numeric pointer stays valid — whichever parts now live
+        // at `currentStage - 1` fire on the next space press.
+        private void DoMoveStage(int fromStageNum, int insertPos)
+        {
+            Vessel v = FlightGlobals.ActiveVessel;
+            if (v == null) return;
+            StageManager sm = StageManager.Instance;
+            if (sm == null || sm.Stages == null) return;
+            if (fromStageNum < 0 || fromStageNum >= sm.Stages.Count) return;
+            if (insertPos < 0 || insertPos > sm.Stages.Count) return;
+            if (insertPos == fromStageNum || insertPos == fromStageNum + 1) return;
+
+            int newFromStage = insertPos > fromStageNum ? insertPos - 1 : insertPos;
+
+            for (int i = 0; i < v.Parts.Count; i++)
+            {
+                Part p = v.Parts[i];
+                if (p == null) continue;
+                int old = p.inverseStage;
+                int next;
+                if (old == fromStageNum)
+                {
+                    next = newFromStage;
+                }
+                else if (fromStageNum < insertPos && old > fromStageNum && old < insertPos)
+                {
+                    next = old - 1;
+                }
+                else if (fromStageNum > insertPos && old >= insertPos && old < fromStageNum)
+                {
+                    next = old + 1;
+                }
+                else
+                {
+                    continue;
+                }
+                SetPartStageDirect(p, next);
+            }
+
+            StageManager.SetSeparationIndices();
             _forceEmit = true;
             GameEvents.StageManager.OnGUIStageSequenceModified.Fire();
         }

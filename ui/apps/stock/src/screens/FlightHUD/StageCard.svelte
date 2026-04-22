@@ -31,14 +31,16 @@
     onPartContext,
     onPartHover,
     onPartDragStart,
+    onStageDragStart,
   }: {
     stage: StageEntry;
     active: boolean;
-    /** Drag-target feedback. `'on'` = a drag will drop onto this
-     *  card (move-to-existing-stage). `null` = not a drop target.
-     *  New-stage creation is right-click-only — drag cannot create
-     *  stages — so there is no insert-above / insert-below variant. */
-    dropHint?: 'on' | null;
+    /** Drag-target feedback:
+     *    'on'           — a part-drag will drop into this stage.
+     *    'insert-above' — a stage-drag will insert above this card.
+     *    'insert-below' — a stage-drag will insert below this card.
+     *    null           — not a drop target. */
+    dropHint?: 'on' | 'insert-above' | 'insert-below' | null;
     /** Representative persistentIds the user has toggled "Ungroup"
      *  on. Passed through so `expandStageParts` can decide whether
      *  to render a consolidated ×N icon or N individual cousins. */
@@ -51,19 +53,37 @@
     /** Left-button pointerdown on a part icon. Lets the parent
      *  spin up a drag gesture. */
     onPartDragStart?: (item: PartRenderItem, e: PointerEvent) => void;
+    /** Left-button pointerdown on the card body (outside any
+     *  icon). Starts a stage-drag gesture — the whole stage moves
+     *  as a unit. */
+    onStageDragStart?: (stage: StageEntry, e: PointerEvent) => void;
   } = $props();
+
+  function onCardPointerDown(e: PointerEvent): void {
+    if (e.button !== 0 || !onStageDragStart) return;
+    // If the press landed on a part icon, let the icon's handler
+    // take it — drag-part and drag-stage share the left-button
+    // pointerdown gesture but differ in where the cursor is.
+    const target = e.target as Element | null;
+    if (target?.closest('.staging-icon-btn')) return;
+    onStageDragStart(stage, e);
+  }
 
   const dv = $derived(formatDeltaV(stage.deltaVActual));
   const twr = $derived(formatTwr(stage.twrActual));
   const renderItems = $derived(expandStageParts(stage.parts, ungrouped));
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <section
   class="stage-card"
   class:stage-card--active={active}
   class:stage-card--drop-on={dropHint === 'on'}
+  class:stage-card--insert-above={dropHint === 'insert-above'}
+  class:stage-card--insert-below={dropHint === 'insert-below'}
   data-stage-num={stage.stageNum}
   aria-label={`Stage ${stage.stageNum}`}
+  onpointerdown={onStageDragStart ? onCardPointerDown : undefined}
 >
   <header class="stage-card__head">
     <span class="stage-card__head-label">Stage</span>
@@ -277,5 +297,37 @@
     outline: 1px dashed var(--accent);
     outline-offset: 1px;
     box-shadow: 0 0 16px rgba(126, 245, 184, 0.18);
+  }
+
+  /* Insertion-line hints for stage-drag. The bar sits at the card
+     edge where the dragged stage would land; uses the accent colour
+     so it reads as a first-class drop affordance. */
+  .stage-card {
+    position: relative;
+  }
+  .stage-card--insert-above::before,
+  .stage-card--insert-below::after {
+    content: '';
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    height: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+    pointer-events: none;
+  }
+  .stage-card--insert-above::before {
+    top: -4px;
+  }
+  .stage-card--insert-below::after {
+    bottom: -4px;
+  }
+
+  /* Stage-drag cursor cue on the non-icon portions of the card. */
+  .stage-card {
+    cursor: grab;
+  }
+  .stage-card:active {
+    cursor: grabbing;
   }
 </style>

@@ -38,6 +38,19 @@ export interface StageOps {
   ): void;
 
   /**
+   * Reorder the stages themselves. Takes the stage at `fromStageNum`
+   * and moves it to insertion position `insertPos` in the range
+   * `[0, stages.length]`. Other stages shift around it automatically.
+   *
+   * The stage's final `stageNum` after the move is
+   * `insertPos - 1` when `insertPos > fromStageNum` (removing it
+   * first shifts the insertion index), else `insertPos`. No-op when
+   * `insertPos` is `fromStageNum` or `fromStageNum + 1` (putting it
+   * back where it was).
+   */
+  moveStage(fromStageNum: number, insertPos: number): void;
+
+  /**
    * Highlight (or un-highlight) a part in the 3D scene. Mirrors the
    * stock stager's hover-to-highlight behaviour: pass a `persistentId`
    * to glow the matching part, or `null` to clear any current
