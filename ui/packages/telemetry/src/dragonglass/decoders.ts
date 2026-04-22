@@ -9,6 +9,13 @@
 // `.copy()` for three.js refs), so reusing the same instance across
 // dispatches avoids per-frame allocation at 10 Hz × 3 topics. Callers
 // must not retain the returned reference between callbacks.
+//
+// The public types (`FlightData`, `EngineData`, `StageData`) are
+// `readonly` on every field — that's the consumer-facing contract.
+// Internally, the scratch pattern requires mutation, so each decoder
+// holds a local `*Mutable` shape (same fields without `readonly`) and
+// casts to the public type at the return site. Same bargain the
+// consumer-side stores (e.g. `use-flight.svelte.ts`) strike.
 
 import { Quaternion, Vector3 } from 'three';
 import type { ClockData } from '../core/clock-data';
@@ -17,7 +24,6 @@ import type { FlightData, SpeedDisplayMode } from '../core/flight-data';
 import type {
   EngineData,
   EnginePoint,
-  EnginePropellant,
   EngineStatus,
 } from '../core/engine-data';
 import type {
@@ -51,15 +57,50 @@ type FlightWire = [
 
 const SPEED_DISPLAY_MODE: readonly SpeedDisplayMode[] = ['orbit', 'surface', 'target'];
 
-const clockScratch: ClockData = { ut: 0, met: null };
+// Mutable mirrors of the public readonly types. Used only inside
+// decoders; consumers see the readonly public type.
 
-const gameScratch: GameData = {
+interface ClockMutable {
+  ut: number;
+  met: number | null;
+}
+
+interface GameMutable {
+  scene: string;
+  activeVesselId: string | null;
+  timewarp: number;
+}
+
+interface FlightMutable {
+  vesselId: string;
+  altitudeAsl: number;
+  altitudeRadar: number;
+  surfaceVelocity: Vector3;
+  orbitalVelocity: Vector3;
+  throttle: number;
+  sas: boolean;
+  rcs: boolean;
+  orientation: Quaternion;
+  angularVelocity: Vector3;
+  hasTarget: boolean;
+  targetVelocity: Vector3;
+  deltaVMission: number;
+  currentThrust: number;
+  stageIdx: number;
+  deltaVStage: number;
+  twrStage: number;
+  speedDisplayMode: SpeedDisplayMode;
+}
+
+const clockScratch: ClockMutable = { ut: 0, met: null };
+
+const gameScratch: GameMutable = {
   scene: '',
   activeVesselId: null,
   timewarp: 1,
 };
 
-const flightScratch: FlightData = {
+const flightScratch: FlightMutable = {
   vesselId: '',
   altitudeAsl: 0,
   altitudeRadar: 0,
@@ -84,7 +125,7 @@ export function decodeClock(raw: unknown): ClockData {
   const a = raw as ClockWire;
   clockScratch.ut = a[0];
   clockScratch.met = a[1];
-  return clockScratch;
+  return clockScratch as ClockData;
 }
 
 export function decodeGame(raw: unknown): GameData {
@@ -92,7 +133,7 @@ export function decodeGame(raw: unknown): GameData {
   gameScratch.scene = a[0];
   gameScratch.activeVesselId = a[1];
   gameScratch.timewarp = a[2];
-  return gameScratch;
+  return gameScratch as GameData;
 }
 
 export function decodeFlight(raw: unknown): FlightData {
@@ -125,7 +166,7 @@ export function decodeFlight(raw: unknown): FlightData {
   flightScratch.deltaVStage = a[14];
   flightScratch.twrStage = a[15];
   flightScratch.speedDisplayMode = SPEED_DISPLAY_MODE[a[16]];
-  return flightScratch;
+  return flightScratch as FlightData;
 }
 
 // Engine topic. Wire:
@@ -164,7 +205,12 @@ const ENGINE_STATUS: readonly EngineStatus[] = [
 // `$derived` (and any engine-map layout recompute) re-runs on
 // material change. Keep the `EngineData` envelope itself as a
 // scratch singleton, consistent with the other decoders.
-const engineScratch: EngineData = {
+interface EngineMutable {
+  vesselId: string;
+  engines: readonly EnginePoint[];
+}
+
+const engineScratch: EngineMutable = {
   vesselId: '',
   engines: [],
 };
@@ -177,7 +223,7 @@ export function decodeEngines(raw: unknown): EngineData {
   for (let i = 0; i < src.length; i++) {
     const e = src[i];
     const propsRaw = e[7];
-    const props = new Array<EnginePropellant>(propsRaw.length);
+    const props = new Array(propsRaw.length);
     for (let j = 0; j < propsRaw.length; j++) {
       const p = propsRaw[j];
       props[j] = {
@@ -199,7 +245,7 @@ export function decodeEngines(raw: unknown): EngineData {
     };
   }
   engineScratch.engines = out;
-  return engineScratch;
+  return engineScratch as EngineData;
 }
 
 // Stage topic. Wire:
@@ -219,7 +265,13 @@ type StageWire = [string, number, StageEntryWire[]];
 // Stages array is replaced wholesale each frame so consumers'
 // `$derived` computations re-run on material change. Envelope stays a
 // scratch singleton for consistency with the other decoders.
-const stageScratch: StageData = {
+interface StageMutable {
+  vesselId: string;
+  currentStageIdx: number;
+  stages: readonly StageEntry[];
+}
+
+const stageScratch: StageMutable = {
   vesselId: '',
   currentStageIdx: -1,
   stages: [],
@@ -252,5 +304,5 @@ export function decodeStage(raw: unknown): StageData {
     };
   }
   stageScratch.stages = out;
-  return stageScratch;
+  return stageScratch as StageData;
 }

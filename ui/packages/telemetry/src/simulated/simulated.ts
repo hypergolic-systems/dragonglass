@@ -116,7 +116,7 @@ export class SimulatedKsp implements Ksp {
     this.subs.clear();
   }
 
-  private dispatch<T>(topic: Topic<T>, data: T): void {
+  private dispatch<T, Ops>(topic: Topic<T, Ops>, data: T): void {
     const set = this.subs.get(topic.name);
     if (set) {
       for (const cb of set) cb(data);

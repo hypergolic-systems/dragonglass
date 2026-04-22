@@ -142,7 +142,7 @@ interface MutablePoint {
   angle: number;
 }
 
-export function idealizeEngineMap(engines: EnginePoint[]): EngineMapLayout {
+export function idealizeEngineMap(engines: readonly EnginePoint[]): EngineMapLayout {
   if (engines.length === 0) return { points: [] };
 
   // ----- Phase 1: centroid-relative polar coords -----

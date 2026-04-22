@@ -10,7 +10,7 @@
   import { useEngineData } from '@dragonglass/telemetry/svelte';
   import { idealizeEngineMap } from './engine-map';
 
-  let { groupIds }: { groupIds: string[] } = $props();
+  let { groupIds }: { groupIds: readonly string[] } = $props();
 
   const e = useEngineData();
   const layout = $derived(idealizeEngineMap(e.engines));
