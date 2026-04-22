@@ -5,6 +5,7 @@
   import NavballIndicator from './NavballIndicator.svelte';
   import Propulsion from './Propulsion.svelte';
   import StagingStack from './StagingStack.svelte';
+  import PartActionWindowHost from './PartActionWindowHost.svelte';
   import { formatSurfaceSpeed, formatAltitude } from './format';
   import { SPEED_SCALE, ALTITUDE_SCALE } from './tape-scales';
   import './FlightHUD.css';
@@ -73,4 +74,9 @@
       />
     </div>
   </div>
+
+  <!-- Part Action Windows — draggable info tiles spawned on the
+       right-click of a part. Mounted here so the host unmounts with
+       the flight scene, taking every PAW subscription with it. -->
+  <PartActionWindowHost />
 </div>

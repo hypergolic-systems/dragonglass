@@ -1,0 +1,114 @@
+// Part Action Windows — reactive list of open PAWs.
+//
+// One `PawTopic` subscription at the module level opens a new entry
+// whenever KSP dispatches a right-click. Each entry owns a
+// `PartTopic(id)` subscription until the user closes it, so the
+// server only maintains part feeds while they're actually on screen.
+//
+// Re-right-clicking an already-open part bumps that PAW to the top of
+// the stack (so the pilot can find it under other windows) instead of
+// opening a duplicate.
+
+import { onDestroy } from 'svelte';
+import { getKsp } from './context';
+import { PawTopic, PartTopic } from '../core/topics';
+import type { PartData } from '../core/part-data';
+
+export interface PartActionWindow {
+  readonly persistentId: string;
+  /** Live telemetry for this part. `null` until the first frame. */
+  data: PartData | null;
+  /**
+   * Pilot-dragged offset in CSS px from the anchor (the part's
+   * current screen position). `null` means "not dragged yet — follow
+   * the anchor with the built-in offset".
+   */
+  pin: { dx: number; dy: number } | null;
+  /** Monotonic z-index; higher = on top. */
+  z: number;
+}
+
+interface InternalPaw extends PartActionWindow {
+  /** Unsubscribes from PartTopic(persistentId). */
+  unsubscribe: () => void;
+}
+
+export interface PartActionWindowOps {
+  readonly windows: readonly PartActionWindow[];
+  /** Remove a PAW by id and release its subscription. */
+  close(persistentId: string): void;
+  /**
+   * Raise a PAW to the top. Called on mousedown in the window header
+   * so dragging brings focus even without reordering DOM.
+   */
+  raise(persistentId: string): void;
+  /** Record a drag offset for a PAW. */
+  setPin(persistentId: string, pin: { dx: number; dy: number }): void;
+}
+
+/**
+ * Subscribe to PAW events. Returns reactive window list + ops. Must
+ * be called from component initialization (needs Svelte context for
+ * the telemetry Ksp handle and the `onDestroy` lifecycle hook for the
+ * PawTopic unsubscribe).
+ *
+ * The returned list is module-local — mounting this hook from more
+ * than one component in the same app would duplicate the PawTopic
+ * subscription. In practice one `PartActionWindowHost` owns it.
+ */
+export function usePartActionWindows(): PartActionWindowOps {
+  const telemetry = getKsp();
+  const windows = $state<InternalPaw[]>([]);
+  let zCounter = 1;
+
+  const unsubscribePaw = telemetry.subscribe(PawTopic, (ev) => {
+    const existing = windows.find((w) => w.persistentId === ev.persistentId);
+    if (existing) {
+      existing.z = ++zCounter;
+      return;
+    }
+    const paw: InternalPaw = {
+      persistentId: ev.persistentId,
+      data: null,
+      pin: null,
+      z: ++zCounter,
+      unsubscribe: () => {},
+    };
+    paw.unsubscribe = telemetry.subscribe(PartTopic(ev.persistentId), (frame) => {
+      // Detached copy so mutating `available` / positions on the
+      // scratch frame doesn't trample Svelte's reactive proxy.
+      paw.data = {
+        persistentId: frame.persistentId,
+        name: frame.name,
+        screen: frame.screen,
+        resources: frame.resources,
+      };
+    });
+    windows.push(paw);
+  });
+
+  onDestroy(() => {
+    unsubscribePaw();
+    for (const w of windows) w.unsubscribe();
+    windows.length = 0;
+  });
+
+  function close(persistentId: string): void {
+    const idx = windows.findIndex((w) => w.persistentId === persistentId);
+    if (idx < 0) return;
+    windows[idx].unsubscribe();
+    windows.splice(idx, 1);
+  }
+
+  function raise(persistentId: string): void {
+    const w = windows.find((p) => p.persistentId === persistentId);
+    if (w) w.z = ++zCounter;
+  }
+
+  function setPin(persistentId: string, pin: { dx: number; dy: number }): void {
+    const w = windows.find((p) => p.persistentId === persistentId);
+    if (w) w.pin = pin;
+  }
+
+  return { windows, close, raise, setPin };
+}

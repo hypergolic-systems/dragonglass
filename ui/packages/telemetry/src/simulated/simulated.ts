@@ -4,6 +4,7 @@ import {
   GameTopic,
   AssemblyTopic,
   EngineTopic,
+  PawTopic,
 } from '../core/topics';
 import type { GameData } from '../core/game-data';
 import type {
@@ -12,6 +13,7 @@ import type {
   EnginePropellant,
   EngineStatus,
 } from '../core/engine-data';
+import type { PartData, PartResourceData } from '../core/part-data';
 import { FlightSimulation } from './flight-sim';
 import { ASSEMBLY } from './assembly-fixture';
 import {
@@ -19,6 +21,9 @@ import {
   CLUSTER_DRAIN_SECONDS,
   ENGINES_CYCLE_SECONDS,
 } from './engines-fixture';
+import { SIMULATED_PARTS, type SimulatedPart } from './parts-fixture';
+
+const PART_TOPIC_PREFIX = 'part/';
 
 // Simulated game state: pin to FLIGHT so `just ui-dev` lands on the
 // flight UI without needing KSP running.
@@ -35,12 +40,18 @@ export class SimulatedKsp implements Ksp {
   private last = 0;
   private elapsed = 0;
   private cleanupKeyboard: (() => void) | null = null;
+  private cleanupPawClicks: (() => void) | null = null;
 
   // Last emitted engine frame — used as the snapshot for late
   // subscribers. No defensive cloning; frames are immutable per
   // their `readonly` types, so handing out the same reference is
   // safe.
   private lastEngines: EngineData = buildEngines(0);
+
+  // Per-part frame cache. Populated on first subscription for a given
+  // partId; retained across (un)subscribes so returning subscribers get
+  // the most recent frame immediately. Map<persistentId, PartData>.
+  private lastParts = new Map<string, PartData>();
 
   subscribe<T, Ops>(topic: Topic<T, Ops>, cb: (frame: T) => void): () => void {
     let set = this.subs.get(topic.name);
@@ -58,6 +69,14 @@ export class SimulatedKsp implements Ksp {
       (cb as (frame: any) => void)(SIM_GAME);
     } else if (topic.name === EngineTopic.name) {
       (cb as (frame: any) => void)(this.lastEngines);
+    } else if (topic.name.startsWith(PART_TOPIC_PREFIX)) {
+      // PartTopic(id) — prime the cache so the first subscriber on a
+      // never-before-seen part gets a frame this tick rather than
+      // waiting for the 10 Hz loop to come around.
+      const partId = topic.name.slice(PART_TOPIC_PREFIX.length);
+      const cached = this.lastParts.get(partId) ?? buildPart(partId, this.elapsed);
+      this.lastParts.set(partId, cached);
+      (cb as (frame: any) => void)(cached);
     }
 
     return () => {
@@ -85,6 +104,7 @@ export class SimulatedKsp implements Ksp {
 
   connect(): Promise<void> {
     this.startKeyboard();
+    this.startPawClicks();
     this.startLoop();
     return Promise.resolve();
   }
@@ -92,6 +112,7 @@ export class SimulatedKsp implements Ksp {
   destroy(): void {
     cancelAnimationFrame(this.raf);
     this.cleanupKeyboard?.();
+    this.cleanupPawClicks?.();
     this.subs.clear();
   }
 
@@ -153,11 +174,114 @@ export class SimulatedKsp implements Ksp {
       this.dispatch(FlightTopic, flight);
       this.dispatch(EngineTopic, engines);
 
+      // Re-emit part frames only for parts that have a live subscriber
+      // this tick. The positional Lissajous drifts slowly, so even
+      // idle PAWs see visibly moving leader lines.
+      for (const name of this.subs.keys()) {
+        if (!name.startsWith(PART_TOPIC_PREFIX)) continue;
+        const partId = name.slice(PART_TOPIC_PREFIX.length);
+        const frame = buildPart(partId, this.elapsed);
+        this.lastParts.set(partId, frame);
+        const bucket = this.subs.get(name);
+        if (bucket) for (const cb of bucket) cb(frame);
+      }
+
       this.raf = requestAnimationFrame(tick);
     };
 
     this.raf = requestAnimationFrame(tick);
   }
+
+  // Dev-mode PAW trigger. Right-click anywhere in the document fires a
+  // PawTopic event carrying the persistentId of whichever simulated
+  // part sits closest to the cursor in viewport space. The `contextmenu`
+  // listener App.svelte installs already cancels the native menu, so
+  // this piggybacks on the same event without fighting it.
+  private startPawClicks(): void {
+    const onContext = (e: MouseEvent) => {
+      const partId = nearestPartToCursor(e.clientX, e.clientY, this.elapsed);
+      if (partId === null) return;
+      this.dispatch(PawTopic, { persistentId: partId });
+    };
+    window.addEventListener('contextmenu', onContext, true);
+    this.cleanupPawClicks = () => {
+      window.removeEventListener('contextmenu', onContext, true);
+    };
+  }
+}
+
+// ---- Part-frame builder -----------------------------------------
+//
+// Maps a simulated part into a live PartData frame: position orbits a
+// slow Lissajous around the viewport centre; resources drain
+// deterministically from `elapsed` so subscriber reconnects land on
+// the same state they would have seen without interruption.
+
+const DRAIN_CYCLE_SECONDS = 180;
+
+function buildPart(persistentId: string, elapsed: number): PartData {
+  const fixture = SIMULATED_PARTS.find((p) => p.persistentId === persistentId);
+  if (!fixture) {
+    return {
+      persistentId,
+      name: `UNKNOWN PART ${persistentId}`,
+      screen: null,
+      resources: [],
+    };
+  }
+  return {
+    persistentId,
+    name: fixture.name,
+    screen: screenPosFor(fixture, elapsed),
+    resources: fixture.resources.map((r) => scaleResource(r, elapsed)),
+  };
+}
+
+function screenPosFor(p: SimulatedPart, elapsed: number): PartData['screen'] {
+  const w = typeof window === 'undefined' ? 1920 : window.innerWidth;
+  const h = typeof window === 'undefined' ? 1080 : window.innerHeight;
+  const cx = w / 2;
+  const cy = h / 2;
+  // Base in [-1, 1] of the short dimension; lissajous on top.
+  const r = Math.min(w, h) * 0.45;
+  const t = elapsed + p.phase;
+  const x = cx + (p.baseX + p.ampX * Math.sin(t * 0.31)) * r;
+  const y = cy + (p.baseY + p.ampY * Math.cos(t * 0.43)) * r;
+  return { x, y, visible: true };
+}
+
+function scaleResource(r: PartResourceData, elapsed: number): PartResourceData {
+  // Drain from capacity to zero over DRAIN_CYCLE, then refill — so
+  // thresholds (warn/alert) visibly cycle without the UI ever
+  // saturating empty for long.
+  if (r.capacity <= 0) return r;
+  const t = (elapsed % DRAIN_CYCLE_SECONDS) / DRAIN_CYCLE_SECONDS;
+  const phase = t < 0.85 ? 1 - t / 0.85 : (t - 0.85) / 0.15;
+  const available = Math.max(0, Math.min(r.capacity, r.capacity * phase));
+  return { ...r, available };
+}
+
+// Nearest simulated part to a viewport coordinate. Used by the dev
+// right-click hook so a right-click opens a plausibly-associated PAW.
+function nearestPartToCursor(
+  x: number,
+  y: number,
+  elapsed: number,
+): string | null {
+  let best: string | null = null;
+  let bestDist = Infinity;
+  for (const fixture of SIMULATED_PARTS) {
+    const screen = screenPosFor(fixture, elapsed);
+    if (!screen) continue;
+    const dx = screen.x - x;
+    const dy = screen.y - y;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) {
+      bestDist = d;
+      best = fixture.persistentId;
+    }
+  }
+  return best;
 }
 
 // ---- Pure frame builders ------------------------------------

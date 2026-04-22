@@ -28,10 +28,18 @@ export {
 } from './stage-data';
 export { type StageOps } from './stage-ops';
 export {
+  type PartData,
+  type PartResourceData,
+  type PartScreenPos,
+  type PawEvent,
+} from './part-data';
+export {
   ClockTopic,
   GameTopic,
   FlightTopic,
   AssemblyTopic,
   EngineTopic,
   StageTopic,
+  PawTopic,
+  PartTopic,
 } from './topics';
