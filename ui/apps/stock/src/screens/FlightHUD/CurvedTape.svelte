@@ -29,7 +29,11 @@
   let baseAngleDeg = $derived(isLeft ? 180 : 0);
   let sign = $derived(isLeft ? -1 : 1);
   let angleDir = $derived(isLeft ? 1 : -1);
-  let textAnchor = $derived(isLeft ? 'end' : 'start');
+  // Readout anchors: number sits at the tab's outer-reading-order end
+  // (far-from-tip on left, near-tip on right), unit is pushed to the
+  // opposite end of the tab rect so it can't crowd a growing number.
+  let numX = $derived(isLeft ? -207 : 152);
+  let unitX = $derived(isLeft ? -152 : 207);
   let panelPath = $derived(isLeft ? PANEL_PATH_LEFT : PANEL_PATH_RIGHT);
   let clipId = $derived(`curved-tape-clip-${side}`);
 
@@ -63,29 +67,25 @@
       {@const cos = Math.cos(angleRad)}
       {@const sin = Math.sin(angleRad)}
       {@const outerR = t.major ? CURVED_TICK_MAJOR_R : CURVED_TICK_MINOR_R}
-      {@const edge = Math.max(0, 1 - Math.abs(t.deltaDeg) / CURVED_VISIBLE_HALF_ARC)}
-      {@const opacity = 0.25 + 0.75 * Math.pow(edge, 0.5)}
-      <g {opacity}>
-        <line
-          class="curved-tape__bar"
-          class:curved-tape__bar--major={t.major}
-          x1={cos * CURVED_TICK_INNER_R}
-          y1={sin * CURVED_TICK_INNER_R}
-          x2={cos * outerR}
-          y2={sin * outerR}
-        />
-        {#if t.major}
-          <text
-            class="curved-tape__label"
-            x={cos * CURVED_LABEL_R}
-            y={sin * CURVED_LABEL_R}
-            text-anchor={textAnchor}
-            dominant-baseline="central"
-          >
-            {t.label}
-          </text>
-        {/if}
-      </g>
+      <line
+        class="curved-tape__bar"
+        class:curved-tape__bar--major={t.major}
+        x1={cos * CURVED_TICK_INNER_R}
+        y1={sin * CURVED_TICK_INNER_R}
+        x2={cos * outerR}
+        y2={sin * outerR}
+      />
+      {#if t.major}
+        <text
+          class="curved-tape__label"
+          x={cos * CURVED_LABEL_R}
+          y={sin * CURVED_LABEL_R}
+          text-anchor="middle"
+          dominant-baseline="central"
+        >
+          {t.label}
+        </text>
+      {/if}
     {/each}
   </g>
 
@@ -110,17 +110,22 @@
   <g class="curved-tape__cursor">
     <polygon class="curved-tape__readout-bg" points={tabPoints} />
     <text
-      x={sign * 155}
-      y={1}
-      text-anchor={textAnchor}
+      class="curved-tape__readout-num"
+      x={numX}
+      y={0}
+      text-anchor="start"
       dominant-baseline="central"
     >
-      <tspan class="curved-tape__readout-num">
-        {formatted.value}
-      </tspan>
-      <tspan class="curved-tape__readout-unit" dx="3">
-        {formatted.unit}
-      </tspan>
+      {formatted.value}
+    </text>
+    <text
+      class="curved-tape__readout-unit"
+      x={unitX}
+      y={0}
+      text-anchor="end"
+      dominant-baseline="central"
+    >
+      {formatted.unit}
     </text>
   </g>
 </svg>

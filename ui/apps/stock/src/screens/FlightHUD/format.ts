@@ -1,18 +1,20 @@
+const groupInt = (v: number) => Math.round(v).toLocaleString('en-US');
+
 export function formatSurfaceSpeed(v: number): { value: string; unit: string } {
-  if (v >= 1e8) return { value: String(Math.round(v / 1e6)), unit: 'Mm/s' };
+  if (v >= 1e8) return { value: groupInt(v / 1e6), unit: 'Mm/s' };
   if (v >= 1e7) return { value: (v / 1e6).toFixed(1), unit: 'Mm/s' };
-  if (v >= 100000) return { value: String(Math.round(v / 1000)), unit: 'km/s' };
+  if (v >= 100000) return { value: groupInt(v / 1000), unit: 'km/s' };
   if (v >= 10000) return { value: (v / 1000).toFixed(1), unit: 'km/s' };
-  return { value: String(Math.round(v)), unit: 'm/s' };
+  return { value: groupInt(v), unit: 'm/s' };
 }
 
 export function formatAltitude(v: number): { value: string; unit: string } {
-  if (v >= 1e10) return { value: String(Math.round(v / 1e9)), unit: 'Gm' };
+  if (v >= 1e10) return { value: groupInt(v / 1e9), unit: 'Gm' };
   if (v >= 1e9) return { value: (v / 1e9).toFixed(1), unit: 'Gm' };
-  if (v >= 1e7) return { value: String(Math.round(v / 1e6)), unit: 'Mm' };
+  if (v >= 1e7) return { value: groupInt(v / 1e6), unit: 'Mm' };
   if (v >= 1e6) return { value: (v / 1e6).toFixed(1), unit: 'Mm' };
-  if (v >= 10000) return { value: String(Math.round(v / 1000)), unit: 'km' };
-  return { value: String(Math.round(v)), unit: 'm' };
+  if (v >= 10000) return { value: groupInt(v / 1000), unit: 'km' };
+  return { value: groupInt(v), unit: 'm' };
 }
 
 // Tick labels need to stay short at every magnitude since the tape

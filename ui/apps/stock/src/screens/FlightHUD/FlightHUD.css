@@ -74,16 +74,16 @@
    tape-bottom-to-stack-baseline alignment is preserved.
 
    The tape panels span 48° either side of horizontal at outer
-   radius 212 in a 488-unit viewBox, so their lowest point is at
-   stage-local y = 212·sin(228°) ≈ 157.6 from centre, i.e.
-   `size/2 − (size/2 + 157.6·size/488) = 86.4·size/488`
+   radius 173 in a 488-unit viewBox, so their lowest point is at
+   stage-local y = 173·sin(48°) ≈ 128.5 from centre, i.e.
+   `size/2 − (size/2 + 128.5·size/488) = 115.5·size/488`
    of dead space below the tape bottom in the box. That's the
    shift we have to translateY by so the visible bottom of the
    wedges lands on the flex row's baseline. */
 .navball-cluster {
   position: relative;
   --navball-size: 326px;
-  --tape-offset: 57px;
+  --tape-offset: 77px;
   width: var(--navball-size);
   height: var(--navball-size);
   flex: 0 0 auto;
@@ -126,14 +126,14 @@
 
 .curved-tape__label {
   font-family: var(--font-mono);
-  font-size: 20px;
+  font-size: 13px;
   fill: var(--fg-dim);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }
 
 .curved-tape__mode rect {
-  fill: rgba(126, 245, 184, 0.08);
+  fill: var(--bg-panel-strong);
   stroke: var(--accent);
   stroke-width: 0.9;
 }

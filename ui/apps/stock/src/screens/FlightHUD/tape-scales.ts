@@ -308,11 +308,11 @@ export const ALTITUDE_SCALE = buildScale(
 // Radial layout constants (SVG coords).
 export const CURVED_TAPE_SIZE = 488;
 export const CURVED_PANEL_INNER_R = 133;
-export const CURVED_PANEL_OUTER_R = 212;
+export const CURVED_PANEL_OUTER_R = 173;
 export const CURVED_TICK_INNER_R = 133;
-export const CURVED_TICK_MINOR_R = 142;
-export const CURVED_TICK_MAJOR_R = 150;
-export const CURVED_LABEL_R = 153;
+export const CURVED_TICK_MINOR_R = 138;
+export const CURVED_TICK_MAJOR_R = 143;
+export const CURVED_LABEL_R = 157;
 export const CURVED_VISIBLE_HALF_ARC = 48;
 
 export function buildPanelPath(baseAngleDeg: number): string {
