@@ -11,6 +11,7 @@
 
 using System.Reflection;
 using HarmonyLib;
+using KSP.UI.Screens;
 using KSP.UI.Screens.Flight;
 using UnityEngine;
 
@@ -90,6 +91,56 @@ namespace Dragonglass.Hud
         {
             [HarmonyPostfix]
             private static void Postfix(LinearControlGauges __instance) => HideSelf(__instance, "LinearControlGauges");
+        }
+
+        // Stock stager. Dragonglass's StagingStack replaces it;
+        // leaving stock's visible alongside causes duplicate icons
+        // and conflicting drag targets.
+        //
+        // Stock's visible root is the `mainListAnchor` VerticalLayoutGroup,
+        // a private field on StageManager. We hide it in Awake (the
+        // only init method StageManager exposes — no Start override)
+        // via reflection — deliberately NOT through
+        // `ShowHideStageStack(false)`, which also calls
+        // `InputLockManager.SetControlLock(STAGING)` and would kill
+        // spacebar-to-stage.
+        [HarmonyPatch(typeof(StageManager), "Awake")]
+        internal static class StageManagerPatch
+        {
+            private static readonly FieldInfo _anchorField =
+                AccessTools.Field(typeof(StageManager), "mainListAnchor");
+
+            [HarmonyPostfix]
+            private static void Postfix(StageManager __instance)
+            {
+                if (__instance == null || _anchorField == null) return;
+                var anchor = _anchorField.GetValue(__instance) as MonoBehaviour;
+                if (anchor == null || anchor.gameObject == null)
+                {
+                    Debug.LogWarning(LogPrefix + "StageManager.mainListAnchor not found — stock stager left visible");
+                    return;
+                }
+                anchor.gameObject.SetActive(false);
+                Debug.Log(LogPrefix + "hid StageManager.mainListAnchor");
+            }
+        }
+
+        // `ShowHideStageStack` is the only stock caller that touches
+        // `mainListAnchor.gameObject.SetActive`, and it also takes /
+        // releases the STAGING input lock as a side effect. Skipping
+        // it entirely (return false from a prefix) keeps the anchor
+        // permanently inactive AND stops anything from ever locking
+        // STAGING. Known stock callers that would otherwise re-show
+        // the stager or lock input:
+        //   • `ToggleStageStack` — player-facing visibility key
+        //   • `FlightUIModeController` — UI-mode change
+        //   • `EVAConstructionModeController` — entering/leaving EVA
+        //     construction mode
+        [HarmonyPatch(typeof(StageManager), nameof(StageManager.ShowHideStageStack))]
+        internal static class ShowHideStageStackPatch
+        {
+            [HarmonyPrefix]
+            private static bool Prefix() => false;
         }
 
         // Several widgets have no dedicated MonoBehaviour we can patch:
