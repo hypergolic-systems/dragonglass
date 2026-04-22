@@ -11,8 +11,10 @@
 //! * `KspClient` — per-browser callback bundle; returns the render
 //!   and display handlers to CEF.
 //! * `KspRenderHandler` — `view_rect` reports our framebuffer
-//!   dimensions; `on_accelerated_paint` receives IOSurface handles
-//!   from CEF's GPU compositor and publishes them via `ShmWriter`.
+//!   dimensions; `on_accelerated_paint` receives per-frame GPU-shared
+//!   texture handles from CEF's compositor (IOSurfaceRef on macOS,
+//!   DXGI shared NT HANDLE on Windows), blits them into a persistent
+//!   canvas texture, and publishes the canvas handle via `ShmWriter`.
 //! * `KspDisplayHandler` — forwards JS `console.*` output to stdout
 //!   so the C# `SidecarHost` can route it to `UDebug.Log`.
 
@@ -83,6 +85,12 @@ pub struct KspRenderHandlerInner {
     /// no more paint callbacks reference it.
     #[cfg(target_os = "macos")]
     io_surface_bridge: Arc<Mutex<Option<dg_gpu::iosurface_bridge::IOSurfaceBridge>>>,
+    /// Canvas bridge that receives per-frame CEF D3D11 shared textures
+    /// (DXGI SHARED_NTHANDLE + SHARED_KEYEDMUTEX) and blits them into a
+    /// persistent canvas texture with its own shared NT handle.
+    /// Swapped on resize. Windows counterpart of `io_surface_bridge`.
+    #[cfg(target_os = "windows")]
+    d3d11_bridge: Arc<Mutex<Option<dg_gpu::d3d11_bridge::D3D11Bridge>>>,
 }
 
 impl KspRenderHandlerInner {
@@ -99,6 +107,8 @@ impl KspRenderHandlerInner {
             io_surface_gen: Arc::new(AtomicU32::new(0)),
             #[cfg(target_os = "macos")]
             io_surface_bridge: Arc::new(Mutex::new(None)),
+            #[cfg(target_os = "windows")]
+            d3d11_bridge: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -117,6 +127,15 @@ impl KspRenderHandlerInner {
     #[cfg(target_os = "macos")]
     pub fn set_io_surface_bridge(&self, bridge: dg_gpu::iosurface_bridge::IOSurfaceBridge) {
         if let Ok(mut slot) = self.io_surface_bridge.lock() {
+            *slot = Some(bridge);
+        }
+    }
+
+    /// Attach (or replace) the D3D11 shared-texture bridge. Windows
+    /// counterpart of `set_io_surface_bridge`.
+    #[cfg(target_os = "windows")]
+    pub fn set_d3d11_bridge(&self, bridge: dg_gpu::d3d11_bridge::D3D11Bridge) {
+        if let Ok(mut slot) = self.d3d11_bridge.lock() {
             *slot = Some(bridge);
         }
     }
@@ -254,6 +273,73 @@ wrap_render_handler! {
             // the plugin caches its GL rect-texture wrapper once.
             self.handler.last_io_surface_id.store(canvas_id, Ordering::Relaxed);
             let gen = self.handler.io_surface_gen.fetch_add(1, Ordering::Relaxed) + 1;
+
+            match self.handler.writer.lock() {
+                Ok(mut writer) => {
+                    writer.write_header_only(canvas_id, gen);
+                    self.handler.frame_counter.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => {
+                    eprintln!("writer mutex poisoned: {e}");
+                }
+            }
+        }
+
+        /// Windows accelerated-paint path. CEF renders to a D3D11
+        /// shared texture on the GPU and hands us a `HANDLE` (NT
+        /// handle, valid only for the duration of this callback). We
+        /// `OpenSharedResource1` it, acquire both keyed mutexes,
+        /// `CopyResource` into our persistent canvas texture, and
+        /// publish the canvas's stable shared handle via
+        /// `ShmWriter::write_header_only`. Only the low 32 bits of
+        /// the HANDLE are published — Windows guarantees NT handles
+        /// are 32-bit significant so truncation is lossless.
+        ///
+        /// Enabled by `shared_texture_enabled=1` on the `WindowInfo`.
+        #[cfg(target_os = "windows")]
+        fn on_accelerated_paint(
+            &self,
+            _browser: Option<&mut Browser>,
+            type_: PaintElementType,
+            _dirty_rects: Option<&[Rect]>,
+            info: Option<&AcceleratedPaintInfo>,
+        ) {
+            use std::sync::atomic::Ordering;
+            let Some(info) = info else { return };
+            if type_ != PaintElementType::default() {
+                return;
+            }
+            // cef's HANDLE typedef is `*mut c_void`. The D3D11Bridge
+            // wraps it into a windows-rs HANDLE internally.
+            let cef_handle = info.shared_texture_handle;
+            if cef_handle.is_null() {
+                return;
+            }
+
+            let canvas_id = match self.handler.d3d11_bridge.lock() {
+                Ok(guard) => match guard.as_ref() {
+                    Some(bridge) => {
+                        if let Err(e) = bridge.blit_from_cef(cef_handle) {
+                            eprintln!("d3d11 blit failed: {e}");
+                        }
+                        bridge.canvas_id()
+                    }
+                    None => 0,
+                },
+                Err(e) => {
+                    eprintln!("d3d11 bridge mutex poisoned: {e}");
+                    0
+                }
+            };
+
+            self.handler
+                .last_io_surface_id
+                .store(canvas_id, Ordering::Relaxed);
+            let gen = self
+                .handler
+                .io_surface_gen
+                .fetch_add(1, Ordering::Relaxed)
+                + 1;
 
             match self.handler.writer.lock() {
                 Ok(mut writer) => {

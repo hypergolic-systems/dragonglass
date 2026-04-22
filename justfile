@@ -56,6 +56,49 @@ sidecar-bundle:
     codesign -f -s - --deep target/bundle/dg-sidecar.app >/dev/null
     echo "Built → crates/dg-sidecar/target/bundle/dg-sidecar.app"
 
+# Build sidecar binaries + stage CEF Windows runtime next to them so
+# dg-sidecar.exe is self-contained. The cef-dll-sys build script
+# extracts the CEF distribution under target/<profile>/build/cef-dll-sys-*/out/
+# cef_windows_x86_64/ — we copy the runtime DLLs, pak/data files, and
+# locales/ out of there. Resulting layout: target/bundle/windows-x64/
+# contains dg-sidecar.exe, dg-sidecar-helper.exe, and everything CEF
+# needs to boot.
+sidecar-bundle-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    out="target/bundle/windows-x64"
+    rm -rf "$out"
+    mkdir -p "$out"
+
+    echo "Building dg-sidecar + dg-sidecar-helper (release)..."
+    cargo build --release --bin dg-sidecar --bin dg-sidecar-helper
+
+    cp target/release/dg-sidecar.exe        "$out/"
+    cp target/release/dg-sidecar-helper.exe "$out/"
+
+    # Locate the most recently built CEF extraction. The hash in the
+    # path varies per cargo metadata — pick the newest match.
+    cef_dir=$(ls -dt target/release/build/cef-dll-sys-*/out/cef_windows_x86_64 2>/dev/null | head -1)
+    if [ -z "$cef_dir" ] || [ ! -d "$cef_dir" ]; then
+        echo "error: CEF distribution not found under target/release/build/cef-dll-sys-*/out/" >&2
+        echo "       run 'cargo build --release' first — it extracts CEF as a build step." >&2
+        exit 1
+    fi
+    echo "Staging CEF runtime from $cef_dir"
+
+    # Runtime DLLs + data. The SDK pieces (include/, libcef_dll/,
+    # cmake/, libcef.lib, CMakeLists.txt, archive.json, CREDITS.html,
+    # bootstrap*.exe) are *not* needed at runtime and stay in target/.
+    cp "$cef_dir"/*.dll "$out/"
+    cp "$cef_dir"/*.pak "$out/"
+    cp "$cef_dir"/*.bin "$out/" 2>/dev/null || true
+    cp "$cef_dir"/*.dat "$out/"
+    cp "$cef_dir"/*.json "$out/" 2>/dev/null || true
+    cp -R "$cef_dir/locales" "$out/"
+
+    echo "Built → $out"
+
 # --- C# (mod/) ---
 
 mod-build config="Release":

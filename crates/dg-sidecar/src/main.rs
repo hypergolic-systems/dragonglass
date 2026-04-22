@@ -218,6 +218,15 @@ fn handle_resize(handler: &KspRenderHandlerInner, host: &cef::BrowserHost, evt: 
         }
     }
 
+    #[cfg(target_os = "windows")]
+    match dg_gpu::D3D11Bridge::create(w, h) {
+        Ok(bridge) => handler.set_d3d11_bridge(bridge),
+        Err(e) => {
+            eprintln!("resize: bridge recreate failed: {} — keeping old bridge", e);
+            return;
+        }
+    }
+
     handler.set_size(w, h);
 
     if let Ok(mut writer) = handler.writer().lock() {
@@ -353,6 +362,16 @@ fn main() -> Result<()> {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        match dg_gpu::D3D11Bridge::create(INITIAL_WIDTH, INITIAL_HEIGHT) {
+            Ok(bridge) => render_inner.set_d3d11_bridge(bridge),
+            Err(e) => {
+                eprintln!("d3d11 bridge init failed: {} — zero-copy disabled", e);
+            }
+        }
+    }
+
     // Keep a clone of the render-handler inner for the main loop so we
     // can drive size updates + bridge swaps from the INPUT_RESIZE branch.
     // Inner is Clone and all its mutable state lives behind Arcs, so
@@ -372,13 +391,35 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(&cache_dir)?;
     let cache_path = CefString::from(cache_dir.to_str().unwrap());
 
-    let settings = Settings {
+    #[allow(unused_mut)]
+    let mut settings = Settings {
         no_sandbox: 1,
         windowless_rendering_enabled: 1,
         external_message_pump: 1,
         root_cache_path: cache_path,
         ..Default::default()
     };
+
+    // Windows has no helper .app bundle, so CEF by default uses the
+    // main exe for renderer/gpu/utility subprocesses. The main exe
+    // parses our URL + session-id positional args up front and bails
+    // before hitting the `execute_process` defensive dispatch below,
+    // so subprocess launches would fail with "UI path is not a
+    // directory: --type=gpu-process". Point CEF at the dedicated
+    // helper exe instead — its `main()` goes straight to
+    // `execute_process`.
+    #[cfg(target_os = "windows")]
+    {
+        let exe = std::env::current_exe()?;
+        let helper = exe
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("sidecar exe has no parent dir"))?
+            .join("dg-sidecar-helper.exe");
+        let helper_str = helper
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("helper path is not valid UTF-8"))?;
+        settings.browser_subprocess_path = CefString::from(helper_str);
+    }
 
     let initialized = initialize(
         Some(args.as_main_args()),

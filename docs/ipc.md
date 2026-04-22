@@ -27,12 +27,25 @@ must mirror the constants defined here exactly.
 ## Pixel transport
 
 Pixels do **not** flow through the shared file. On the `on_accelerated_paint`
-callback, CEF hands the sidecar an `IOSurfaceRef`; the sidecar blits
-it into a persistent canvas IOSurface marked `kIOSurfaceIsGlobal` and
-publishes the canvas's `IOSurfaceID` via the header. The plugin wraps
-the surface as an `MTLTexture` with `Texture2D.CreateExternalTexture`,
-and the native rendering dylib blits it into the Unity `RawImage`
-backing texture each frame — all GPU-local, no memcpy.
+callback, CEF hands the sidecar a per-frame GPU-shared texture handle
+(platform-specific, see below). The sidecar blits it into a persistent
+canvas texture and publishes a 32-bit identifier for that canvas via
+the header's `io_surface_id` field. The plugin wraps the canvas as a
+platform-native Unity external texture and the native rendering plugin
+blits it into the Unity `RawImage` backing texture each frame — all
+GPU-local, no memcpy.
+
+| Platform | Per-frame handle from CEF          | Published in header          | Plugin-side wrap                                     |
+|----------|------------------------------------|-------------------------------|------------------------------------------------------|
+| macOS    | `IOSurfaceRef` (id via `.id()`)    | `IOSurfaceID` (u32, full)     | `IOSurfaceLookup` → `MTLTexture` via Metal / GL      |
+| Windows  | `HANDLE` (DXGI shared NT handle)   | low 32 bits of HANDLE         | `OpenSharedResource1` → `ID3D11Texture2D`            |
+
+On Windows the canvas texture is created with
+`D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX`;
+the NT handle's low 32 bits are stable across the SHM round-trip
+because Windows guarantees handles are 32-bit significant (see MSDN:
+*Interprocess Communication Between 32-bit and 64-bit Applications*),
+so the upper bits are always zero.
 
 ## Header (bytes 0–127, little-endian)
 

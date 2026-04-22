@@ -35,11 +35,12 @@ pub fn default_shm_path() -> PathBuf {
 
 /// Session-scoped SHM path. Each KSP instance passes a unique session
 /// ID so multiple instances don't stomp each other.
+///
+/// `std::env::temp_dir()` resolves per-platform: `$TMPDIR` then
+/// `/tmp` on Unix, `%LOCALAPPDATA%\Temp` on Windows. The C# plugin
+/// uses `Path.GetTempPath()`, which converges on the same directory.
 pub fn shm_path_for_session(session_id: &str) -> PathBuf {
-    let dir = std::env::var_os("TMPDIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    dir.join(format!("dragonglass-{session_id}.shm"))
+    std::env::temp_dir().join(format!("dragonglass-{session_id}.shm"))
 }
 
 /// Writer side of the shared-memory seqlock. Owned by the sidecar.
