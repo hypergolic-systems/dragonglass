@@ -41,3 +41,36 @@ export function useStageData(): StageData {
   }
   return store as StageData;
 }
+
+/**
+ * Optimistic local counterpart to the server's `moveStage` op. Run
+ * immediately after `ops.moveStage(...)` so the UI reflects the
+ * reorder on the same frame the drop fires — rather than flashing
+ * the pre-move state until the server echoes a fresh frame (~10–
+ * 100 ms round trip).
+ *
+ * The reorder math matches `StageTopic.DoMoveStage` on the C# side
+ * exactly: for each stage entry, the new stageNum is its old one
+ * shifted by ±1 when it sits in the affected range, or the
+ * dragged stage's explicit target. No-op when `insertPos` is
+ * `fromStageNum` or `fromStageNum + 1` (putting it back where it
+ * came from).
+ *
+ * The server echo that arrives a tick later simply rewrites the
+ * store to the same values we just set, so no correction is
+ * visible.
+ */
+export function applyMoveStage(fromStageNum: number, insertPos: number): void {
+  const F = fromStageNum;
+  const I = insertPos;
+  if (I === F || I === F + 1) return;
+  const newF = I > F ? I - 1 : I;
+  store.stages = store.stages.map((s) => {
+    let next = s.stageNum;
+    if (s.stageNum === F) next = newF;
+    else if (I > F && s.stageNum > F && s.stageNum < I) next = s.stageNum - 1;
+    else if (I < F && s.stageNum >= I && s.stageNum < F) next = s.stageNum + 1;
+    if (next === s.stageNum) return s;
+    return { ...s, stageNum: next };
+  });
+}

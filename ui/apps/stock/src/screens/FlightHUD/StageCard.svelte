@@ -27,6 +27,9 @@
     stage,
     active,
     dropHint,
+    translateY,
+    isDragging = false,
+    settling = false,
     ungrouped,
     onPartContext,
     onPartHover,
@@ -35,21 +38,37 @@
   }: {
     stage: StageEntry;
     active: boolean;
+    /** Authored-pixel vertical offset during stage-drag. For the
+     *  dragged card itself this is the clamped cursor delta; for
+     *  sibling cards it's the shift that opens the drop-slot hole.
+     *  Null / absent = rest normally in the flex layout. */
+    translateY?: number | null;
+    /** True when this card is the one the user is currently
+     *  dragging. Drives the lift / glow / no-transition chrome —
+     *  sibling cards shift via `translateY` but stay flat. */
+    isDragging?: boolean;
+    /** True for a single frame right around a drop. Disables the
+     *  transform transition so cards snap straight to translate(0)
+     *  when `translateY` clears, instead of animating back from
+     *  their drag-time offsets over the content swap. */
+    settling?: boolean;
     /** Drag-target feedback:
-     *    'on'           — a part-drag will drop into this stage.
-     *    'insert-above' — a stage-drag will insert above this card.
-     *    'insert-below' — a stage-drag will insert below this card.
-     *    null           — not a drop target. */
-    dropHint?: 'on' | 'insert-above' | 'insert-below' | null;
+     *    'on'  — a part-drag will drop into this stage.
+     *    null  — not a drop target.
+     *  Stage-drag has no per-card hint; the sibling-shift hole IS
+     *  the insertion indicator. */
+    dropHint?: 'on' | null;
     /** Representative persistentIds the user has toggled "Ungroup"
      *  on. Passed through so `expandStageParts` can decide whether
      *  to render a consolidated ×N icon or N individual cousins. */
     ungrouped: ReadonlySet<string>;
     /** Right-click / ContextMenu-key on a single part icon. */
     onPartContext?: (item: PartRenderItem, stage: StageEntry, e: MouseEvent | KeyboardEvent) => void;
-    /** Hover pass-through. Fires with the hovered part's
-     *  persistentId on enter / focus, null on leave / blur. */
-    onPartHover?: (persistentId: string | null) => void;
+    /** Hover pass-through. Fires on enter / focus with the set of
+     *  persistentIds the icon visually represents — one for a
+     *  singleton or expanded-cousin icon, many for a consolidated
+     *  ×N group. `null` fires on leave / blur. */
+    onPartHover?: (persistentIds: readonly string[] | null) => void;
     /** Left-button pointerdown on a part icon. Lets the parent
      *  spin up a drag gesture. */
     onPartDragStart?: (item: PartRenderItem, e: PointerEvent) => void;
@@ -79,11 +98,12 @@
   class="stage-card"
   class:stage-card--active={active}
   class:stage-card--drop-on={dropHint === 'on'}
-  class:stage-card--insert-above={dropHint === 'insert-above'}
-  class:stage-card--insert-below={dropHint === 'insert-below'}
+  class:stage-card--dragging={isDragging}
+  class:stage-card--settling={settling}
   data-stage-num={stage.stageNum}
   aria-label={`Stage ${stage.stageNum}`}
   onpointerdown={onStageDragStart ? onCardPointerDown : undefined}
+  style:transform={translateY != null ? `translateY(${translateY}px)` : undefined}
 >
   <header class="stage-card__head">
     <span class="stage-card__head-label">Stage</span>
@@ -118,7 +138,18 @@
           persistentId={item.part.persistentId}
           symmetryCount={item.count}
           oncontext={onPartContext ? (e) => onPartContext(item, stage, e) : undefined}
-          onhover={onPartHover}
+          onhover={onPartHover
+            ? (id) => onPartHover(
+                id === null
+                  ? null
+                  // Consolidated group: light up every cousin at
+                  // once (what the single visible icon represents).
+                  // Expanded or singleton: just the one part.
+                  : item.isConsolidated
+                    ? [item.part.persistentId, ...item.part.cousinsInStage]
+                    : [item.part.persistentId],
+              )
+            : undefined}
           ondragstart={onPartDragStart ? (e) => onPartDragStart(item, e) : undefined}
         />
       {/each}
@@ -147,10 +178,15 @@
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.02em;
+    /* Transition the transform so sibling cards animate smoothly
+       into the hole as it moves during a stage-drag. Dragged card
+       itself overrides this to 'none' (see .stage-card--dragging)
+       so it stays glued to the cursor. */
     transition:
       background 220ms ease,
       border-color 220ms ease,
-      box-shadow 220ms ease;
+      box-shadow 220ms ease,
+      transform 150ms ease;
   }
 
   /* Active — full Propulsion treatment minus the blur. Same solid
@@ -327,7 +363,33 @@
   .stage-card {
     cursor: grab;
   }
-  .stage-card:active {
+  .stage-card:active,
+  .stage-card--dragging {
     cursor: grabbing;
+  }
+
+  /* Lift the actively-dragged card out of the stack visually:
+     stacking context above siblings, a drop shadow that strengthens
+     the "picked up" feeling, and explicit `transform` response
+     (no transition) so the card stays glued to the cursor. */
+  .stage-card--dragging {
+    z-index: 20;
+    box-shadow:
+      0 0 28px rgba(126, 245, 184, 0.18),
+      0 12px 28px rgba(0, 0, 0, 0.55),
+      inset 0 0 0 1px rgba(126, 245, 184, 0.12);
+    transition: none;
+  }
+
+  /* Settling: one-frame transform-transition suppression around
+     a drop, so cards snap to translate(0) in the same tick that
+     their content swaps — instead of animating from their drag-
+     time offsets back to the flex layout while the new content
+     is already showing. */
+  .stage-card--settling {
+    transition:
+      background 220ms ease,
+      border-color 220ms ease,
+      box-shadow 220ms ease;
   }
 </style>

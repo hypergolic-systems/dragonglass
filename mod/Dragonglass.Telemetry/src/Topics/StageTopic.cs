@@ -135,9 +135,11 @@ namespace Dragonglass.Telemetry.Topics
         // Scratch list reused across frames.
         private readonly List<StageFrame> _scratch = new List<StageFrame>();
 
-        // The single currently hover-highlighted part, if any.
-        // Hovering a new icon swaps; hovering off the stack clears.
-        private Part _highlightedPart;
+        // The set of parts currently hover-highlighted in the 3D
+        // scene. Replaced wholesale on each setHighlightParts op.
+        // Size is usually 0 or 1, up to N for a symmetry group
+        // (quad-SRB cluster = 4).
+        private readonly List<Part> _highlightedParts = new List<Part>();
 
         // Shared empty list for stages with no icon-worthy parts —
         // avoids allocating a fresh List<> per empty stage per frame.
@@ -159,14 +161,9 @@ namespace Dragonglass.Telemetry.Topics
         protected override void OnDisable()
         {
             base.OnDisable();
-            // Clear any lingering hover highlight so the part isn't
+            // Clear any lingering hover highlight so the parts aren't
             // left glowing when we leave the Flight scene.
-            if (_highlightedPart != null)
-            {
-                try { _highlightedPart.SetHighlight(false, recursive: false); }
-                catch { /* part may already be destroyed */ }
-                _highlightedPart = null;
-            }
+            ClearHighlights();
             GameEvents.onStageActivate.Remove(OnStageActivate);
             GameEvents.StageManager.OnGUIStageSequenceModified.Remove(OnStageSequenceModified);
             GameEvents.onDeltaVCalcsCompleted.Remove(OnDeltaVCalcsCompleted);
@@ -187,10 +184,10 @@ namespace Dragonglass.Telemetry.Topics
         {
             _structureDirty = true;
             _forceEmit = true;
-            // Drop any stale highlight pointer; the referenced part
+            // Drop any stale highlight pointers; the referenced parts
             // may belong to the previous vessel. We don't try to
-            // clear its highlight — it's already off-scene.
-            _highlightedPart = null;
+            // clear their highlights — they're already off-scene.
+            _highlightedParts.Clear();
         }
         private void OnVesselWasModified(Vessel v) { if (v == FlightGlobals.ActiveVessel) _structureDirty = true; }
         private void OnDockingComplete(GameEvents.FromToAction<Part, Part> _) { _structureDirty = true; }
@@ -484,14 +481,21 @@ namespace Dragonglass.Telemetry.Topics
                         DoMoveStage(msFrom, msInsert);
                     }
                     break;
-                case "setHighlightPart":
+                case "setHighlightParts":
                     {
-                        // `null` is a valid arg — clears any current
-                        // highlight. Otherwise we expect a string
-                        // persistentId.
-                        string hlId = null;
-                        if (args != null && args.Count >= 1 && args[0] is string s) hlId = s;
-                        DoSetHighlightPart(hlId);
+                        // args: [[persistentId, ...]]  — a single
+                        // positional array of ids. An empty list
+                        // clears any current highlight.
+                        List<string> hlIds = null;
+                        if (args != null && args.Count >= 1 && args[0] is List<object> raw)
+                        {
+                            hlIds = new List<string>(raw.Count);
+                            for (int i = 0; i < raw.Count; i++)
+                            {
+                                if (raw[i] is string s) hlIds.Add(s);
+                            }
+                        }
+                        DoSetHighlightParts(hlIds);
                     }
                     break;
                 default:
@@ -781,30 +785,38 @@ namespace Dragonglass.Telemetry.Topics
         }
 
         // Hover-to-highlight. Mirrors stock's StageIcon.HighlightPart
-        // (`Part.SetHighlight(state, recursive: false)`). The caller
-        // sends a persistentId on hover-enter and `null` on
-        // hover-leave; we track the last-set part so moving between
-        // icons glows one at a time without leaking stale highlights.
-        private void DoSetHighlightPart(string persistentId)
+        // (`Part.SetHighlight(state, recursive: false)`) but over a
+        // set of parts so hovering a consolidated symmetry icon can
+        // glow every cousin in the group simultaneously. The client
+        // sends the full set on each enter / leave — latest call
+        // wins — so we don't have to track "what should remain lit
+        // after this change" ourselves; we just replace.
+        private void DoSetHighlightParts(List<string> persistentIds)
         {
-            // Clear the previous highlight unconditionally. If the
-            // vessel changed or the part was destroyed, the set is a
-            // no-op on a dead reference and the null assignment
-            // drops it.
-            if (_highlightedPart != null)
-            {
-                try { _highlightedPart.SetHighlight(false, recursive: false); }
-                catch { /* destroyed part — fine */ }
-                _highlightedPart = null;
-            }
-            if (string.IsNullOrEmpty(persistentId)) return;
+            ClearHighlights();
+            if (persistentIds == null || persistentIds.Count == 0) return;
 
             Vessel v = FlightGlobals.ActiveVessel;
             if (v == null) return;
-            Part p = FindPart(v, persistentId);
-            if (p == null) return;
-            p.SetHighlight(true, recursive: false);
-            _highlightedPart = p;
+            for (int i = 0; i < persistentIds.Count; i++)
+            {
+                Part p = FindPart(v, persistentIds[i]);
+                if (p == null) continue;
+                p.SetHighlight(true, recursive: false);
+                _highlightedParts.Add(p);
+            }
+        }
+
+        private void ClearHighlights()
+        {
+            for (int i = 0; i < _highlightedParts.Count; i++)
+            {
+                Part p = _highlightedParts[i];
+                if (p == null) continue;
+                try { p.SetHighlight(false, recursive: false); }
+                catch { /* part may already be destroyed — fine */ }
+            }
+            _highlightedParts.Clear();
         }
 
         private static Part FindPart(Vessel v, string persistentId)

@@ -51,11 +51,14 @@ export interface StageOps {
   moveStage(fromStageNum: number, insertPos: number): void;
 
   /**
-   * Highlight (or un-highlight) a part in the 3D scene. Mirrors the
-   * stock stager's hover-to-highlight behaviour: pass a `persistentId`
-   * to glow the matching part, or `null` to clear any current
-   * highlight. The server tracks at most one highlighted part at a
-   * time — the latest call wins.
+   * Highlight (or un-highlight) a set of parts in the 3D scene.
+   * Pass one or more `persistentId`s to glow those parts; pass an
+   * empty array to clear. The server clears any previous highlight
+   * set before applying the new one — latest call wins.
+   *
+   * Multi-part form so hovering a consolidated `×N` symmetry icon
+   * can glow every cousin in the group at once, matching what the
+   * single visible icon represents.
    */
-  setHighlightPart(persistentId: string | null): void;
+  setHighlightParts(persistentIds: readonly string[]): void;
 }
