@@ -56,9 +56,6 @@ namespace Dragonglass.Hud
 
         private Vector3 _lastMousePosition;
         private bool _hasLastMouse;
-        // True while a mouse button is held that we forwarded to CEF.
-        // Mouse-up only forwards if the matching down was forwarded.
-        private bool _cefOwnsClick;
 
         private float _nextShmRetryTime;
         private const float ShmRetryInterval = 0.5f;
@@ -371,9 +368,19 @@ namespace Dragonglass.Hud
         /// mapping: Unity is bottom-left origin (y up); CEF wants
         /// top-left origin (y down).
         ///
-        /// Hit-testing: mouse-down only forwards to CEF if the pixel
-        /// under the cursor has alpha > 0 (i.e. a HUD panel is there).
-        /// Transparent regions pass through to KSP.
+        /// Forwarding policy:
+        ///   • Moves and button down/up are forwarded unconditionally.
+        ///     CEF benefits from seeing every click regardless of
+        ///     alpha — clicks over transparent regions land on nothing
+        ///     in the DOM (inert) but let open menus / popovers detect
+        ///     "user clicked outside me" and self-dismiss. The job of
+        ///     keeping HUD-destined input away from KSP is handled by
+        ///     HudRaycastFilter (Unity ICanvasRaycastFilter) on the
+        ///     other side — CEF is the always-on recipient.
+        ///   • Wheel stays alpha-gated: otherwise a scroll over the
+        ///     game world would simultaneously zoom the camera AND
+        ///     try to scroll something in CEF, which is confusing
+        ///     even when nothing in CEF is actually scrollable.
         /// </summary>
         private void SampleAndForwardMouse()
         {
@@ -407,7 +414,8 @@ namespace Dragonglass.Hud
                 _hasLastMouse = true;
             }
 
-            // Mouse wheel: only forward if pixel is non-transparent.
+            // Mouse wheel: alpha-gated so a scroll over the game
+            // world only zooms the camera, not both.
             float scroll = Input.GetAxis("Mouse ScrollWheel");
             if (scroll != 0f && HitTestAlpha(cefX, cefY))
             {
@@ -416,26 +424,22 @@ namespace Dragonglass.Hud
                     Layout.InputMouseWheel, Layout.InputBtnNone, cefX, cefY, delta);
             }
 
+            // Buttons: unconditional forward. Matches the "CEF is the
+            // always-on recipient" policy above. `_cefOwnsClick` is
+            // gone — we no longer need to pair alpha-gated downs with
+            // ups, since every down forwards.
             for (int btn = 0; btn < 3; btn++)
             {
                 byte btnCode = UnityButtonToInputBtn(btn);
                 if (Input.GetMouseButtonDown(btn))
                 {
-                    if (HitTestAlpha(cefX, cefY))
-                    {
-                        _reader.WriteInputEvent(
-                            Layout.InputMouseDown, btnCode, cefX, cefY);
-                        _cefOwnsClick = true;
-                    }
+                    _reader.WriteInputEvent(
+                        Layout.InputMouseDown, btnCode, cefX, cefY);
                 }
                 if (Input.GetMouseButtonUp(btn))
                 {
-                    if (_cefOwnsClick)
-                    {
-                        _reader.WriteInputEvent(
-                            Layout.InputMouseUp, btnCode, cefX, cefY);
-                        _cefOwnsClick = false;
-                    }
+                    _reader.WriteInputEvent(
+                        Layout.InputMouseUp, btnCode, cefX, cefY);
                 }
             }
         }

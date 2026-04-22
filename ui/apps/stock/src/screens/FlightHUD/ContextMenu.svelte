@@ -105,6 +105,10 @@
 
   // Outside-click dismissal. Bound on mount via `$effect`; `capture`
   // mode so we see the mousedown before it retargets focus elsewhere.
+  // The KSP plugin unconditionally forwards mousedown/up to CEF, so
+  // this handler fires for clicks anywhere on screen — on other HUD
+  // panels AND over the KSP 3D scene — which is all the
+  // "user did something that should close this" signal we need.
   $effect(() => {
     const onDown = (e: MouseEvent) => {
       if (panel && !panel.contains(e.target as Node)) {
