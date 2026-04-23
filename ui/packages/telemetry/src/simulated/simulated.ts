@@ -6,6 +6,7 @@ import {
   EngineTopic,
   PawTopic,
   PartTopic,
+  StageTopic,
 } from '../core/topics';
 import type { GameData } from '../core/game-data';
 import type {
@@ -17,6 +18,7 @@ import type {
 import type { PartData, PartResourceData } from '../core/part-data';
 import { FlightSimulation } from './flight-sim';
 import { ASSEMBLY } from './assembly-fixture';
+import { SIM_STAGE_DATA, SIM_STAGE_DATA_EDITOR } from './stages-fixture';
 import {
   ENGINES_SIM,
   CLUSTER_DRAIN_SECONDS,
@@ -70,6 +72,9 @@ export class SimulatedKsp implements Ksp {
       (cb as (frame: any) => void)(ASSEMBLY);
     } else if (topic.name === GameTopic.name) {
       (cb as (frame: any) => void)(SIM_GAME);
+    } else if (topic.name === StageTopic.name) {
+      const stage = SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA;
+      (cb as (frame: any) => void)(stage);
     } else if (topic.name === EngineTopic.name) {
       (cb as (frame: any) => void)(this.lastEngines);
     } else if (topic.name.startsWith(PART_TOPIC_PREFIX)) {
@@ -160,11 +165,17 @@ export class SimulatedKsp implements Ksp {
         e.preventDefault();
       }
       // F2 flips the simulated scene between FLIGHT and EDITOR so the
-      // editor PAW path is exercisable without a KSP install.
+      // editor PAW + staging paths are exercisable without a KSP
+      // install. StageTopic also re-emits so the staging stack picks
+      // up the editor-flavoured fixture (currentStageIdx = -1).
       if (k === 'f2') {
         e.preventDefault();
         SIM_GAME.scene = SIM_GAME.scene === 'FLIGHT' ? 'EDITOR' : 'FLIGHT';
         this.dispatch(GameTopic, SIM_GAME);
+        this.dispatch(
+          StageTopic,
+          SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA,
+        );
         return;
       }
       if (k === 't') {

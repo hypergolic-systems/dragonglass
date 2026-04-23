@@ -54,6 +54,15 @@
   left: var(--nav-inset);
 }
 
+/* Editor mirror — staging stack pinned to the bottom-right corner,
+   matching where stock KSP draws its own editor stager. No navball
+   cluster in the editor, so the flex row is just the stack. */
+.navslot--bottom-right {
+  bottom: var(--nav-inset);
+  right: var(--nav-inset);
+  flex-direction: row-reverse;
+}
+
 /* Left-side column of staging / engine / propulsion displays. Uses
    column-reverse so the DOM-first child (Propulsion, today) sits at
    the bottom, and future panels appended later in source order

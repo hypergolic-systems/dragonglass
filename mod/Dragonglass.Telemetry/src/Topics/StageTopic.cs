@@ -156,6 +156,12 @@ namespace Dragonglass.Telemetry.Topics
             GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onDockingComplete.Add(OnDockingComplete);
             GameEvents.onVesselsUndocking.Add(OnUndocking);
+            // Editor-side structure triggers. Parts added / deleted /
+            // symmetry-cloned in the VAB/SPH all rebuild the staging
+            // list, so we dirty the cache and let Update resample.
+            GameEvents.onEditorShipModified.Add(OnEditorShipModified);
+            GameEvents.onEditorPartEvent.Add(OnEditorPartEvent);
+            GameEvents.onEditorLoad.Add(OnEditorLoad);
         }
 
         protected override void OnDisable()
@@ -171,7 +177,14 @@ namespace Dragonglass.Telemetry.Topics
             GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onDockingComplete.Remove(OnDockingComplete);
             GameEvents.onVesselsUndocking.Remove(OnUndocking);
+            GameEvents.onEditorShipModified.Remove(OnEditorShipModified);
+            GameEvents.onEditorPartEvent.Remove(OnEditorPartEvent);
+            GameEvents.onEditorLoad.Remove(OnEditorLoad);
         }
+
+        private void OnEditorShipModified(ShipConstruct _) { _structureDirty = true; _forceEmit = true; }
+        private void OnEditorPartEvent(ConstructionEventType _, Part __) { _structureDirty = true; }
+        private void OnEditorLoad(ShipConstruct _, CraftBrowserDialog.LoadType __) { _structureDirty = true; _forceEmit = true; }
 
         // Staging transition — force a fresh frame on the wire.
         private void OnStageActivate(int _) { _structureDirty = true; _forceEmit = true; }
@@ -195,25 +208,59 @@ namespace Dragonglass.Telemetry.Topics
 
         private void Update()
         {
-            if (FlightGlobals.fetch == null) return;
-            Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null) return;
+            // Source abstraction. Flight reads the active vessel;
+            // Editor reads the in-construction ShipConstruct. Both
+            // expose the same three bits we need — parts list,
+            // VesselDeltaV, and an identity string — so the rest of
+            // the sample pipeline is scene-agnostic.
+            List<Part> parts;
+            VesselDeltaV vdv;
+            string nextVesselId;
+            int nextCurrentStage;
+            Vessel nextVessel;
 
-            if (v != _cachedVessel)
+            if (HighLogic.LoadedScene == GameScenes.EDITOR)
             {
-                _cachedVessel = v;
+                ShipConstruct ship = EditorLogic.fetch != null ? EditorLogic.fetch.ship : null;
+                if (ship == null) return;
+                parts = ship.parts;
+                vdv = ship.vesselDeltaV;
+                // ShipConstruct has no persistent id; use a stable
+                // sentinel so the client knows "this is the editor
+                // ship" and any flight-keyed UI state (pinned PAWs,
+                // selection) resets on scene change.
+                nextVesselId = "editor";
+                // No active stage in the editor — report -1 so the
+                // client's "current stage highlight" renders as none.
+                nextCurrentStage = -1;
+                nextVessel = null;
+            }
+            else
+            {
+                if (FlightGlobals.fetch == null) return;
+                Vessel v = FlightGlobals.ActiveVessel;
+                if (v == null) return;
+                parts = v.Parts;
+                vdv = v.VesselDeltaV;
+                nextVesselId = v.id.ToString("D");
+                nextCurrentStage = v.currentStage;
+                nextVessel = v;
+            }
+
+            if (nextVessel != _cachedVessel)
+            {
+                _cachedVessel = nextVessel;
                 _structureDirty = true;
             }
 
             if (_structureDirty)
             {
-                _partsByStage = BuildPartsByStage(v);
+                _partsByStage = BuildPartsByStage(parts);
                 _structureDirty = false;
             }
 
             _scratch.Clear();
 
-            VesselDeltaV vdv = v.VesselDeltaV;
             List<DeltaVStageInfo> infos = vdv != null ? vdv.OperatingStageInfo : null;
             if (infos != null)
             {
@@ -222,10 +269,10 @@ namespace Dragonglass.Telemetry.Topics
                     DeltaVStageInfo info = infos[i];
                     if (info == null) continue;
 
-                    List<StagePartFrame> parts;
-                    if (!_partsByStage.TryGetValue(info.stage, out parts))
+                    List<StagePartFrame> parts2;
+                    if (!_partsByStage.TryGetValue(info.stage, out parts2))
                     {
-                        parts = EmptyParts;
+                        parts2 = EmptyParts;
                     }
 
                     _scratch.Add(new StageFrame
@@ -233,13 +280,10 @@ namespace Dragonglass.Telemetry.Topics
                         Stage = info.stage,
                         DeltaVActual = info.deltaVActual,
                         TwrActual = info.TWRActual,
-                        Parts = parts,
+                        Parts = parts2,
                     });
                 }
             }
-
-            string nextVesselId = v.id.ToString("D");
-            int nextCurrentStage = v.currentStage;
 
             bool changed = _forceEmit
                 || nextVesselId != _vesselId
@@ -275,14 +319,14 @@ namespace Dragonglass.Telemetry.Topics
         // their own singleton in their respective stage. Without
         // this scoping, a cousin that's been shuffled elsewhere
         // would never appear in the UI.
-        private static Dictionary<int, List<StagePartFrame>> BuildPartsByStage(Vessel v)
+        private static Dictionary<int, List<StagePartFrame>> BuildPartsByStage(List<Part> parts)
         {
             Dictionary<int, List<StagePartFrame>> byStage =
                 new Dictionary<int, List<StagePartFrame>>();
 
-            for (int i = 0; i < v.Parts.Count; i++)
+            for (int i = 0; i < parts.Count; i++)
             {
-                Part p = v.Parts[i];
+                Part p = parts[i];
                 if (p == null) continue;
                 if (!p.hasStagingIcon) continue;
                 if (!p.stagingOn) continue;
@@ -534,13 +578,13 @@ namespace Dragonglass.Telemetry.Topics
         // acceptable because we're hiding the stock stager anyway.
         private void DoMovePart(string persistentId, int targetStageNum, bool group)
         {
-            Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null) return;
+            List<Part> parts = CurrentScenePartsList();
+            if (parts == null) return;
             StageManager sm = StageManager.Instance;
             if (sm == null || sm.Stages == null) return;
             if (targetStageNum < 0 || targetStageNum >= sm.Stages.Count) return;
 
-            Part part = FindPart(v, persistentId);
+            Part part = FindPart(parts, persistentId);
             if (part == null) return;
 
             int sourceStage = part.inverseStage;
@@ -563,7 +607,7 @@ namespace Dragonglass.Telemetry.Topics
             // on it anymore — keeps the stage list tight without
             // orphan rows.
             if (sourceStage >= 0 && sourceStage < sm.Stages.Count
-                && !IsStageInhabited(v, sourceStage))
+                && !IsStageInhabited(parts, sourceStage))
             {
                 CollapseEmptyStage(sm, sm.Stages[sourceStage]);
             }
@@ -583,12 +627,12 @@ namespace Dragonglass.Telemetry.Topics
         // source+1, source stays put).
         private void DoMovePartToNewStage(string persistentId, string position, bool group)
         {
-            Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null) return;
+            List<Part> parts = CurrentScenePartsList();
+            if (parts == null) return;
             StageManager sm = StageManager.Instance;
             if (sm == null || sm.Stages == null) return;
 
-            Part part = FindPart(v, persistentId);
+            Part part = FindPart(parts, persistentId);
             if (part == null) return;
 
             int sourceStage = part.inverseStage;
@@ -599,7 +643,7 @@ namespace Dragonglass.Telemetry.Topics
             else if (position == "above") insertAt = sourceStage;
             else return;
 
-            InsertStageAndMovePart(sm, v, part, insertAt, group);
+            InsertStageAndMovePart(sm, parts, part, insertAt, group);
         }
 
         // Insert an empty stage at list position `insertAt`, then
@@ -619,7 +663,7 @@ namespace Dragonglass.Telemetry.Topics
         // be `sourceStage + 1` if sourceStage was >= insertAt, and we
         // resample it before doing the move.
         private void InsertStageAndMovePart(
-            StageManager sm, Vessel v, Part part, int insertAt, bool group)
+            StageManager sm, List<Part> parts, Part part, int insertAt, bool group)
         {
             int sourceStage = part.inverseStage;
 
@@ -663,7 +707,7 @@ namespace Dragonglass.Telemetry.Topics
             }
 
             if (newSourceStage >= 0 && newSourceStage < sm.Stages.Count
-                && !IsStageInhabited(v, newSourceStage))
+                && !IsStageInhabited(parts, newSourceStage))
             {
                 CollapseEmptyStage(sm, sm.Stages[newSourceStage]);
             }
@@ -693,8 +737,8 @@ namespace Dragonglass.Telemetry.Topics
         // at `currentStage - 1` fire on the next space press.
         private void DoMoveStage(int fromStageNum, int insertPos)
         {
-            Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null) return;
+            List<Part> parts = CurrentScenePartsList();
+            if (parts == null) return;
             StageManager sm = StageManager.Instance;
             if (sm == null || sm.Stages == null) return;
             if (fromStageNum < 0 || fromStageNum >= sm.Stages.Count) return;
@@ -703,9 +747,9 @@ namespace Dragonglass.Telemetry.Topics
 
             int newFromStage = insertPos > fromStageNum ? insertPos - 1 : insertPos;
 
-            for (int i = 0; i < v.Parts.Count; i++)
+            for (int i = 0; i < parts.Count; i++)
             {
-                Part p = v.Parts[i];
+                Part p = parts[i];
                 if (p == null) continue;
                 int old = p.inverseStage;
                 int next;
@@ -736,17 +780,32 @@ namespace Dragonglass.Telemetry.Topics
         // True iff any part with a staging icon is currently assigned
         // to `stageNum`. Used to decide whether the just-emptied
         // source stage should collapse.
-        private static bool IsStageInhabited(Vessel v, int stageNum)
+        private static bool IsStageInhabited(List<Part> parts, int stageNum)
         {
-            for (int i = 0; i < v.Parts.Count; i++)
+            for (int i = 0; i < parts.Count; i++)
             {
-                Part p = v.Parts[i];
+                Part p = parts[i];
                 if (p == null) continue;
                 if (!p.hasStagingIcon) continue;
                 if (!p.stagingOn) continue;
                 if (p.inverseStage == stageNum) return true;
             }
             return false;
+        }
+
+        // The current scene's parts list — flight's active vessel, or
+        // the editor's in-construction ship. Returns null when neither
+        // is available (not in Flight or Editor, or the scene has no
+        // vessel yet), which the mutation handlers treat as "drop".
+        private static List<Part> CurrentScenePartsList()
+        {
+            if (HighLogic.LoadedScene == GameScenes.EDITOR)
+            {
+                ShipConstruct ship = EditorLogic.fetch != null ? EditorLogic.fetch.ship : null;
+                return ship != null ? ship.parts : null;
+            }
+            Vessel v = FlightGlobals.fetch != null ? FlightGlobals.ActiveVessel : null;
+            return v != null ? v.Parts : null;
         }
 
         // Direct-field update of a part's staging assignment.
@@ -796,11 +855,11 @@ namespace Dragonglass.Telemetry.Topics
             ClearHighlights();
             if (persistentIds == null || persistentIds.Count == 0) return;
 
-            Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null) return;
+            List<Part> parts = CurrentScenePartsList();
+            if (parts == null) return;
             for (int i = 0; i < persistentIds.Count; i++)
             {
-                Part p = FindPart(v, persistentIds[i]);
+                Part p = FindPart(parts, persistentIds[i]);
                 if (p == null) continue;
                 p.SetHighlight(true, recursive: false);
                 _highlightedParts.Add(p);
@@ -819,14 +878,14 @@ namespace Dragonglass.Telemetry.Topics
             _highlightedParts.Clear();
         }
 
-        private static Part FindPart(Vessel v, string persistentId)
+        private static Part FindPart(List<Part> parts, string persistentId)
         {
-            if (v == null || string.IsNullOrEmpty(persistentId)) return null;
+            if (parts == null || string.IsNullOrEmpty(persistentId)) return null;
             uint id;
             if (!uint.TryParse(persistentId, out id)) return null;
-            for (int i = 0; i < v.Parts.Count; i++)
+            for (int i = 0; i < parts.Count; i++)
             {
-                Part p = v.Parts[i];
+                Part p = parts[i];
                 if (p != null && p.persistentId == id) return p;
             }
             return null;

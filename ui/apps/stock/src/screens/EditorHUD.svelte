@@ -1,12 +1,14 @@
 <script lang="ts">
-  // Minimal editor overlay: just the PAW host + a scene indicator.
-  // The VAB/SPH already has its own massively-featured UI (parts bin,
-  // action groups, crew assignment); Dragonglass only replaces the
-  // right-click info tile here. Flight-only widgets (navball, staging
-  // stack, propulsion) stay unmounted so they don't clash with stock's
-  // editor chrome.
+  // Editor overlay: PAW host + staging stack + a scene indicator.
+  // The VAB/SPH keeps its own parts bin / action groups / crew
+  // assignment; we stop at right-click info tiles and the staging
+  // pane. Flight-only widgets (navball, propulsion readouts) stay
+  // unmounted — they assume a live vessel with a burning throttle,
+  // which has no meaning on the assembly floor.
 
   import PartActionWindowHost from './FlightHUD/PartActionWindowHost.svelte';
+  import StagingStack from './FlightHUD/StagingStack.svelte';
+  import './FlightHUD/FlightHUD.css';
 
   interface Props {
     scene: string;
@@ -19,6 +21,17 @@
   <div class="editor-hud__badge" aria-hidden="true">
     <span class="editor-hud__brand">DRAGONGLASS</span>
     <span class="editor-hud__scene">{label}</span>
+  </div>
+
+  <!-- Stage stack, pinned bottom-right to mirror stock's editor stager
+       placement. The StagingStack component is reused verbatim — it
+       only consumes StageTopic which the server already mirrors for
+       editor scenes — so drag-reorder and icon interactions come
+       along for free. -->
+  <div class="navslot navslot--bottom-right">
+    <div class="staging-stack">
+      <StagingStack />
+    </div>
   </div>
 
   <!-- Mounting the PAW host here means the PawTopic subscription and
