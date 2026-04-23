@@ -1,6 +1,6 @@
 [package]
 name = "dg-gpu"
-description = "GPU texture sharing via IOSurface/Metal for CEF frame transport"
+description = "GPU texture sharing for CEF frame transport — IOSurface/Metal on macOS, DXGI shared NT handles on Windows"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -19,6 +19,7 @@ windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D_Fxc",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Security",

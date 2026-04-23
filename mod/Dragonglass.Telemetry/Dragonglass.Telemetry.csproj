@@ -9,6 +9,9 @@
     <AssemblyName>Dragonglass.Telemetry</AssemblyName>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
+    <!-- KSP's AssemblyLoader parses AssemblyInformationalVersion with System.Version,
+         which chokes on the "+<git-sha>" suffix the SDK appends by default. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <OutputPath>build/</OutputPath>

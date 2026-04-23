@@ -15,6 +15,9 @@
     <AssemblyName>Dragonglass.Hud</AssemblyName>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
+    <!-- KSP's AssemblyLoader parses AssemblyInformationalVersion with System.Version,
+         which chokes on the "+<git-sha>" suffix the SDK appends by default. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <OutputPath>build/</OutputPath>
@@ -73,8 +76,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Ship 0Harmony.dll alongside Dragonglass.Hud.dll: KSP doesn't
+         provide Harmony itself and we can't rely on another mod to
+         drop one into the Mono GAC. PrivateAssets=all keeps it out
+         of any future transitive consumers. -->
     <PackageReference Include="Lib.Harmony" Version="2.3.3"
-                      ExcludeAssets="runtime" PrivateAssets="all" />
+                      PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

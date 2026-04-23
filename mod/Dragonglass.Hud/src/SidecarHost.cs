@@ -5,9 +5,14 @@
 // the child is still alive. `Application.quitting` kills the child
 // on KSP process shutdown so the sidecar doesn't outlive the game.
 //
-// Binary is at `<dll>/../Sidecar/dg-sidecar.app/...` which is where
-// `just install` deploys it. Missing binary is non-fatal: the
-// plugin logs a warning and the user can launch the sidecar by hand.
+// Binary is at `<dll>/../<sidecar-root>/...` which is where `just
+// install` deploys it. On macOS that's `Sidecar/dg-sidecar.app/...`;
+// on Windows it's `PluginData/Sidecar/dg-sidecar.exe` — the extra
+// PluginData/ hop hides the CEF runtime's .dll files from KSP's
+// UrlDir scanner, which otherwise blows up on libcef.dll /
+// vulkan-1.dll / etc. whose Win32 FileVersion strings don't parse
+// as System.Version. Missing binary is non-fatal: the plugin logs
+// a warning and the user can launch the sidecar by hand.
 //
 // Direct-exec of the Mach-O inside the `.app` bundle (bypassing
 // `open`) is what gives us a real PID we can Kill(). The ad-hoc
@@ -111,10 +116,17 @@ namespace Dragonglass.Hud
 
                 try
                 {
+                    // bootUrl is a filesystem path on Windows and may
+                    // contain spaces (e.g. "C:\Users\Alex Rickabaugh\...").
+                    // ProcessStartInfo.Arguments is a single command-line
+                    // string the child splits via CommandLineToArgvW, so
+                    // wrap the path in double quotes to keep it one arg.
+                    // SessionId is hex, TelemetryWsUrl has no whitespace
+                    // — only bootUrl needs quoting.
                     var psi = new ProcessStartInfo
                     {
                         FileName = binary,
-                        Arguments = bootUrl + " " + SessionId + " " + TelemetryWsUrl
+                        Arguments = "\"" + bootUrl + "\" " + SessionId + " " + TelemetryWsUrl
                             + " --device-scale=" +
                             deviceScale.ToString("0.###",
                                 System.Globalization.CultureInfo.InvariantCulture),
@@ -286,20 +298,38 @@ namespace Dragonglass.Hud
         private static string ResolveBinary()
         {
             // Plugin DLL is at <KSPRoot>/GameData/Dragonglass_Hud/Plugins/Dragonglass.Hud.dll.
-            // Sibling sidecar lives at <KSPRoot>/GameData/Dragonglass_Hud/Sidecar/dg-sidecar.app/...
+            // Sidecar layout (see module header): macOS keeps the .app
+            // at <modDir>/Sidecar/ since bundles aren't .dll files KSP
+            // scans. Windows puts the flat CEF distribution under
+            // <modDir>/PluginData/Sidecar/ so UrlDir skips the subtree.
             try
             {
                 string dllPath = Assembly.GetExecutingAssembly().Location;
-                if (!string.IsNullOrEmpty(dllPath))
+                if (string.IsNullOrEmpty(dllPath)) return null;
+                string pluginsDir = Path.GetDirectoryName(dllPath);
+                string modDir = Path.GetDirectoryName(pluginsDir);
+
+                string candidate;
+                switch (Application.platform)
                 {
-                    string pluginsDir = Path.GetDirectoryName(dllPath);
-                    string modDir = Path.GetDirectoryName(pluginsDir);
-                    string candidate = Path.Combine(modDir,
-                        "Sidecar", "dg-sidecar.app", "Contents", "MacOS", "dg-sidecar");
-                    if (File.Exists(candidate))
-                    {
-                        return candidate;
-                    }
+                    case RuntimePlatform.OSXPlayer:
+                    case RuntimePlatform.OSXEditor:
+                        candidate = Path.Combine(modDir, "Sidecar",
+                            "dg-sidecar.app", "Contents", "MacOS", "dg-sidecar");
+                        break;
+                    case RuntimePlatform.WindowsPlayer:
+                    case RuntimePlatform.WindowsEditor:
+                        candidate = Path.Combine(modDir, "PluginData", "Sidecar", "dg-sidecar.exe");
+                        break;
+                    default:
+                        // Linux / other — place the ELF under PluginData/
+                        // too once we port; it's the same .so scanner hazard.
+                        candidate = Path.Combine(modDir, "PluginData", "Sidecar", "dg-sidecar");
+                        break;
+                }
+                if (File.Exists(candidate))
+                {
+                    return candidate;
                 }
             }
             catch (Exception e)

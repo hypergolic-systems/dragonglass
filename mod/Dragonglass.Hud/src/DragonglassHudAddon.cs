@@ -18,6 +18,8 @@
 // pixel copies.
 
 using System;
+using System.Collections;
+using System.IO;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -75,6 +77,13 @@ namespace Dragonglass.Hud
             // The UI app decides per-scene what to render.
             DontDestroyOnLoad(gameObject);
 
+            // Keep Update() ticking when the KSP window loses focus so
+            // the zero-copy blit pipeline (which only advances inside
+            // Update) doesn't freeze while the user is in another app.
+            // Stock KSP behaves the same way; this is a safety net for
+            // cases where the setting got cleared.
+            Application.runInBackground = true;
+
             // Install Harmony patches that suppress stock Flight UI
             // elements Dragonglass replaces (navball, MET clock,
             // altimeter, vertical-speed, speed readout, trim gauges).
@@ -100,7 +109,75 @@ namespace Dragonglass.Hud
             // before Frame N's render.
             if (_overlay != null) _overlay.Visible = false;
         }
-        private void OnSceneGuiReady(GameScenes scene) { _sceneTransitioning = false; }
+        private void OnSceneGuiReady(GameScenes scene)
+        {
+            _sceneTransitioning = false;
+            if (ScreenshotsEnabled) StartCoroutine(CaptureSceneScreenshot(scene));
+        }
+
+        // Debug aid: when DRAGONGLASS_SCREENSHOTS=1 is set in the
+        // environment at KSP launch, writes a PNG of the rendered
+        // scene to <KSP>/dragonglass-screenshots/<scene>-<HHmmss>.png
+        // a few seconds after every GUI-ready event, plus once from
+        // Start() for the initial scene the addon woke up in. Useful
+        // for verifying the overlay is actually landing on screen
+        // without having to drive the UI interactively.
+        private static readonly bool ScreenshotsEnabled =
+            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DRAGONGLASS_SCREENSHOTS"));
+
+        private IEnumerator CaptureSceneScreenshot(GameScenes scene)
+        {
+            // Give CEF time to paint the post-transition frame through
+            // the blit pipeline: 2 realtime seconds is generous but
+            // scene transitions are rare so the cost is negligible.
+            // WaitForEndOfFrame makes sure the screenshot grabs a
+            // fully composited frame including our ScreenSpaceOverlay.
+            yield return new WaitForSecondsRealtime(2f);
+            yield return new WaitForEndOfFrame();
+            string path = null;
+            try
+            {
+                string dir = Path.Combine(KSPUtil.ApplicationRootPath, "dragonglass-screenshots");
+                Directory.CreateDirectory(dir);
+                path = Path.Combine(dir,
+                    scene + "-" + DateTime.Now.ToString("HHmmss") + ".png");
+                InvokeScreenCapture(path);
+                Debug.Log(LogPrefix + "scene screenshot queued: " + path);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning(LogPrefix + "screenshot failed (" +
+                    (path ?? "<no path>") + "): " + e.Message);
+            }
+        }
+
+        // UnityEngine.ScreenCapture lives in UnityEngine.ScreenCaptureModule,
+        // which our stubs/ don't ship (keeping the reference set minimal).
+        // For a debug-only hook, looking it up reflectively at runtime is
+        // fine — KSP's Player ships the real module next to UnityPlayer.dll.
+        private static void InvokeScreenCapture(string path)
+        {
+            Type t = Type.GetType("UnityEngine.ScreenCapture, UnityEngine.ScreenCaptureModule")
+                ?? Type.GetType("UnityEngine.ScreenCapture, UnityEngine.CoreModule")
+                ?? Type.GetType("UnityEngine.ScreenCapture, UnityEngine");
+            if (t == null)
+            {
+                throw new InvalidOperationException(
+                    "UnityEngine.ScreenCapture type not found in loaded assemblies");
+            }
+            MethodInfo mi = t.GetMethod(
+                "CaptureScreenshot",
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types: new[] { typeof(string) },
+                modifiers: null);
+            if (mi == null)
+            {
+                throw new InvalidOperationException(
+                    "ScreenCapture.CaptureScreenshot(string) method not found");
+            }
+            mi.Invoke(null, new object[] { path });
+        }
 
         private void Start()
         {
@@ -147,6 +224,11 @@ namespace Dragonglass.Hud
             // this will fail; Update() retries on a timer until the
             // file exists and matches our dimensions.
             TryOpenReader(firstAttempt: true);
+
+            // onLevelWasLoadedGUIReady already fired for the initial
+            // scene before our Awake() subscribed, so capture it here
+            // directly if debug screenshots are enabled.
+            if (ScreenshotsEnabled) StartCoroutine(CaptureSceneScreenshot(HighLogic.LoadedScene));
         }
 
         /// <summary>

@@ -173,14 +173,31 @@ native-test: native-build-darwin
     clang -o /tmp/dghudnative-smoke test/smoke.c
     /tmp/dghudnative-smoke ./out/DgHudNative.bundle/Contents/MacOS/DgHudNative
 
+# Build Windows native plugin (Rust cdylib -> DgHudNative.dll) and stage
+# it under mod/native/windows-x64/out/. Parity with native-build-darwin.
+native-build-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --release -p dg-hud-plugin-win
+    mkdir -p mod/native/windows-x64/out
+    cp target/release/DgHudNative.dll mod/native/windows-x64/out/
+    echo "Built → mod/native/windows-x64/out/DgHudNative.dll"
+
 # --- Release packaging ---
 
-# Generate combined third-party license notices (.NET + Rust deps)
+# Generate combined third-party license notices (.NET + Rust deps).
+# cargo-about is optional — without it we emit a stub marker so the
+# downstream dist recipes still produce a zip.
 notices:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p release
-    cargo about generate about.hbs -o release/THIRD_PARTY_NOTICES_RUST 2>/dev/null
+    if cargo about --version >/dev/null 2>&1; then
+        cargo about generate about.hbs -o release/THIRD_PARTY_NOTICES_RUST 2>/dev/null
+    else
+        echo "cargo-about not installed — skipping Rust crate notices (install via: cargo install cargo-about)" >&2
+        echo "Rust crate notices omitted (cargo-about not installed)." > release/THIRD_PARTY_NOTICES_RUST
+    fi
     cat mod/THIRD_PARTY_NOTICES release/THIRD_PARTY_NOTICES_RUST > release/THIRD_PARTY_NOTICES
 
 # Telemetry plugin: WebSocket server broadcasting vessel state (standalone)
@@ -196,9 +213,19 @@ dist-telemetry: (mod-build "Release")
     cp LICENSE "$root/"
 
     mkdir -p release
-    rm -f "{{justfile_directory()}}/release/Dragonglass_Telemetry.zip"
+    out="{{justfile_directory()}}/release/Dragonglass_Telemetry.zip"
+    rm -f "$out"
     cd "$stage"
-    zip -qr "{{justfile_directory()}}/release/Dragonglass_Telemetry.zip" GameData/
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+            src_win=$(cygpath -w "$PWD/GameData")
+            out_win=$(cygpath -w "$out")
+            powershell.exe -NoProfile -Command "Compress-Archive -Path '$src_win' -DestinationPath '$out_win' -Force" >/dev/null
+            ;;
+        *)
+            zip -qr "$out" GameData/
+            ;;
+    esac
     rm -rf "$stage"
     echo "Built → release/Dragonglass_Telemetry.zip"
 
@@ -209,9 +236,13 @@ dist-hud: ui-build (mod-build "Release") notices
     stage=$(mktemp -d)
     root="$stage/GameData/Dragonglass_Hud"
 
-    # Core plugin (no vendored runtime deps — protobuf removed in v3)
+    # Core plugin + bundled Harmony. KSP doesn't provide Harmony
+    # itself; Dragonglass.Hud patches the stock stager/flight UI via
+    # Harmony so we ship 0Harmony.dll alongside. KSP's AssemblyLoader
+    # picks the highest-versioned copy if another mod also ships it.
     mkdir -p "$root/Plugins"
     cp mod/Dragonglass.Hud/build/Dragonglass.Hud.dll       "$root/Plugins/"
+    cp mod/Dragonglass.Hud/build/0Harmony.dll              "$root/Plugins/"
 
     # Stock flight UI
     mkdir -p "$root/UI/Stock"
@@ -221,9 +252,19 @@ dist-hud: ui-build (mod-build "Release") notices
     cp release/THIRD_PARTY_NOTICES "$root/"
 
     mkdir -p release
-    rm -f "{{justfile_directory()}}/release/Dragonglass_Hud.zip"
+    out="{{justfile_directory()}}/release/Dragonglass_Hud.zip"
+    rm -f "$out"
     cd "$stage"
-    zip -qr "{{justfile_directory()}}/release/Dragonglass_Hud.zip" GameData/
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+            src_win=$(cygpath -w "$PWD/GameData")
+            out_win=$(cygpath -w "$out")
+            powershell.exe -NoProfile -Command "Compress-Archive -Path '$src_win' -DestinationPath '$out_win' -Force" >/dev/null
+            ;;
+        *)
+            zip -qr "$out" GameData/
+            ;;
+    esac
     rm -rf "$stage"
     echo "Built → release/Dragonglass_Hud.zip"
 
@@ -251,6 +292,48 @@ dist-hud-darwin-arm64: native-build-darwin sidecar-bundle
     rm -rf "$stage"
     echo "Built → release/Dragonglass_Hud_darwin_arm64.zip"
 
+# Windows x64 sidecar + native plugin
+dist-hud-windows-x64: native-build-windows sidecar-bundle-windows
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stage=$(mktemp -d)
+    root="$stage/GameData/Dragonglass_Hud"
+
+    # Native rendering plugin ships alongside the managed DLL in
+    # Plugins/: Unity/Mono's PInvoke resolver on Windows uses its own
+    # hardcoded search paths (KSP_x64_Data/Mono/, Plugins/) and ignores
+    # Windows' SetDllDirectory override, so LoadLibrary preloads aren't
+    # picked up. DgHudNative.dll carries a VS_VERSIONINFO resource
+    # (set via winresource in crates/dg-hud-plugin-win/build.rs) so
+    # KSP's UrlDir scanner doesn't throw on its FileVersion.
+    # The Plugins/ dir is usually populated by dist-hud running
+    # earlier in the `install` chain, but this recipe may also run
+    # standalone — mkdir -p covers both cases.
+    mkdir -p "$root/Plugins"
+    cp mod/native/windows-x64/out/DgHudNative.dll "$root/Plugins/"
+
+    # CEF sidecar bundle (dg-sidecar.exe + helper + libcef.dll + all
+    # the other CEF runtime DLLs + locales/) goes under PluginData/:
+    # KSP's UrlDir.Create skips any directory literally named
+    # "PluginData" (alongside ".svn" and "zDeprecated"), hiding the
+    # whole subtree from the scanner. Without this, libcef.dll's
+    # "146.0.10+g..." FileVersion and vulkan-1.dll's "Vulkan Loader"
+    # FileVersion halt GameDatabase loading at "Loading part upgrades".
+    # SidecarHost.ResolveBinary knows the PluginData/ prefix.
+    mkdir -p "$root/PluginData/Sidecar"
+    cp -R target/bundle/windows-x64/. "$root/PluginData/Sidecar/"
+
+    mkdir -p release
+    out="{{justfile_directory()}}/release/Dragonglass_Hud_windows_x64.zip"
+    rm -f "$out"
+    # Use PowerShell's Compress-Archive — built into Windows 10+, no extra deps.
+    # -Path expects a Windows path; convert via cygpath.
+    stage_win=$(cygpath -w "$stage/GameData")
+    out_win=$(cygpath -w "$out")
+    powershell.exe -NoProfile -Command "Compress-Archive -Path '$stage_win' -DestinationPath '$out_win' -Force"
+    rm -rf "$stage"
+    echo "Built → release/Dragonglass_Hud_windows_x64.zip"
+
 # Build all release zips
 dist: dist-telemetry dist-hud dist-hud-darwin-arm64
     #!/usr/bin/env bash
@@ -261,7 +344,8 @@ dist: dist-telemetry dist-hud dist-hud-darwin-arm64
 
 # Build and install into a KSP directory. Detects platform automatically.
 #   just install ~/KSP_osx
-install ksp_path: dist
+#   just install ~/Documents/KSP_win64
+install ksp_path: dist-telemetry dist-hud
     #!/usr/bin/env bash
     set -euo pipefail
     ksp="{{ksp_path}}"
@@ -271,29 +355,60 @@ install ksp_path: dist
         exit 1
     fi
 
+    # Build the platform-specific sidecar/native zip on demand.
+    os="$(uname -s)"
+    case "$os" in
+        Darwin)                   just dist-hud-darwin-arm64 ;;
+        MINGW*|MSYS*|CYGWIN*)     just dist-hud-windows-x64 ;;
+        *)                        echo "error: no dist recipe for $os" >&2; exit 1 ;;
+    esac
+
     # Clean previous install
     rm -rf "$ksp/GameData/Dragonglass_Telemetry"
     rm -rf "$ksp/GameData/Dragonglass_Hud"
+
+    # Pick an extractor that matches the archive format. On Windows the
+    # zips are produced by PowerShell's Compress-Archive (backslash
+    # separators make `unzip` warn + exit 1 under set -e); use
+    # Expand-Archive for symmetry. On mac/linux keep plain unzip.
+    extract() {
+        case "$os" in
+            MINGW*|MSYS*|CYGWIN*)
+                src_win=$(cygpath -w "$1")
+                dst_win=$(cygpath -w "$2")
+                powershell.exe -NoProfile -Command "Expand-Archive -Path '$src_win' -DestinationPath '$dst_win' -Force" >/dev/null
+                ;;
+            *)
+                unzip -qo "$1" -d "$2"
+                ;;
+        esac
+    }
 
     # Unpack universal packages
     for zip in \
         release/Dragonglass_Telemetry.zip \
         release/Dragonglass_Hud.zip \
     ; do
-        unzip -qo "$zip" -d "$ksp"
+        extract "$zip" "$ksp"
     done
 
     # Platform-specific sidecar + native plugin
     os="$(uname -s)"
     arch="$(uname -m)"
     case "${os}_${arch}" in
-        Darwin_arm64)  zip="release/Dragonglass_Hud_darwin_arm64.zip" ;;
+        Darwin_arm64)                       zip="release/Dragonglass_Hud_darwin_arm64.zip"; use_ditto=1 ;;
+        MINGW*_x86_64|MSYS*_x86_64|CYGWIN*_x86_64) zip="release/Dragonglass_Hud_windows_x64.zip"; use_ditto=0 ;;
         *)             echo "error: no sidecar package for ${os}_${arch}" >&2; exit 1 ;;
     esac
 
     if [ -f "$zip" ]; then
-        # Use ditto to preserve symlinks and resource forks from the zip
-        ditto -x -k "$zip" "$ksp"
+        if [ "$use_ditto" = 1 ]; then
+            # macOS: ditto preserves symlinks + resource forks from the zip.
+            ditto -x -k "$zip" "$ksp"
+        else
+            # Windows/Linux: use extract() helper defined above.
+            extract "$zip" "$ksp"
+        fi
     else
         echo "error: $zip not found — run 'just dist' first" >&2
         exit 1

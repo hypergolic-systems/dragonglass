@@ -77,14 +77,29 @@ namespace Dragonglass.Hud
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
 
-            // RGBA32, not BGRA32 — the zero-copy blit path in DgHudNative
-            // wraps the incoming IOSurface with CGLTexImageIOSurface2D's
-            // internal format = GL_RGBA, so the source texture's canonical
-            // byte order is RGBA. Unity's glBlitFramebuffer then does a
-            // byte-for-byte copy to this destination; declaring this
-            // Texture2D as BGRA32 causes Unity to render the bytes as if
-            // they were BGRA, swapping R and B on display.
-            _texture = new Texture2D(width, height, TextureFormat.RGBA32, mipChain: false, linear: false);
+            // Platform-specific format. The mod DLL is one binary
+            // loaded by both the macOS and Windows KSP players, so
+            // the choice has to be at runtime.
+            //
+            // macOS — RGBA32: the native plugin wraps the incoming
+            // IOSurface via CGLTexImageIOSurface2D with internal
+            // format GL_RGBA. Unity's glBlitFramebuffer does a
+            // byte-for-byte copy into this destination; declaring
+            // BGRA32 would swap R and B at display time.
+            //
+            // Windows — BGRA32: the native plugin's source canvas is
+            // DXGI_FORMAT_B8G8R8A8_UNORM (CEF's native Windows output
+            // format). RGBA32 maps to DXGI_FORMAT_R8G8B8A8_UNORM, and
+            // D3D11 CopyResource between those two format groups
+            // silently does nothing (neither is a TYPELESS parent of
+            // the other) — the overlay texture stays permanently
+            // blank even though the canvas has content.
+            TextureFormat fmt =
+                (Application.platform == RuntimePlatform.WindowsPlayer ||
+                 Application.platform == RuntimePlatform.WindowsEditor)
+                    ? TextureFormat.BGRA32
+                    : TextureFormat.RGBA32;
+            _texture = new Texture2D(width, height, fmt, mipChain: false, linear: false);
             _texture.filterMode = FilterMode.Point;
             _texture.wrapMode = TextureWrapMode.Clamp;
 

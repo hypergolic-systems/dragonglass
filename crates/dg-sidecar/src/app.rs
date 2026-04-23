@@ -285,17 +285,14 @@ wrap_render_handler! {
             }
         }
 
-        /// Windows accelerated-paint path. CEF renders to a D3D11
-        /// shared texture on the GPU and hands us a `HANDLE` (NT
-        /// handle, valid only for the duration of this callback). We
-        /// `OpenSharedResource1` it, acquire both keyed mutexes,
-        /// `CopyResource` into our persistent canvas texture, and
-        /// publish the canvas's stable shared handle via
-        /// `ShmWriter::write_header_only`. Only the low 32 bits of
-        /// the HANDLE are published — Windows guarantees NT handles
-        /// are 32-bit significant so truncation is lossless.
-        ///
-        /// Enabled by `shared_texture_enabled=1` on the `WindowInfo`.
+        /// Windows accelerated-paint path. CEF hands us a HANDLE to a
+        /// D3D11 shared NT texture containing the latest frame. We
+        /// open it, bind it as a shader-resource view, and render a
+        /// fullscreen triangle into our canvas RTV that un-premultiplies
+        /// alpha as it writes. CEF's cefclient sample takes the same
+        /// approach — SRV sample + draw, NOT `CopyResource` — which
+        /// is the only read path that surfaces actual pixels from
+        /// Chromium's NT-handle shared texture on Windows in CEF 146.
         #[cfg(target_os = "windows")]
         fn on_accelerated_paint(
             &self,
@@ -309,8 +306,6 @@ wrap_render_handler! {
             if type_ != PaintElementType::default() {
                 return;
             }
-            // cef's HANDLE typedef is `*mut c_void`. The D3D11Bridge
-            // wraps it into a windows-rs HANDLE internally.
             let cef_handle = info.shared_texture_handle;
             if cef_handle.is_null() {
                 return;
@@ -460,15 +455,18 @@ wrap_browser_process_handler! {
 
             let window_info = WindowInfo {
                 windowless_rendering_enabled: 1,
-                // Zero-copy pixel pipeline: CEF renders into an IOSurface
-                // on the GPU, and `on_accelerated_paint` gives us a handle
-                // to it. We deliberately do NOT set
-                // `external_begin_frame_enabled` — the cef-rs OSR example
-                // flips both together, but when that flag is set CEF
-                // stops rendering until something drives
-                // `send_external_begin_frame`. With it off CEF free-runs
-                // at `windowless_frame_rate` (60 Hz), which is what we
-                // want.
+                // macOS uses the accelerated-paint IOSurface handoff
+                // (zero-copy); Windows uses the CPU-side on_paint
+                // callback because CEF 146's accelerated-paint shared
+                // textures read as empty from the host process
+                // regardless of compositor/adapter flags.
+                //
+                // Deliberately not setting `external_begin_frame_enabled`
+                // — the cef-rs OSR example flips both together, but
+                // when that flag is set CEF stops rendering until
+                // something drives `send_external_begin_frame`. With
+                // it off CEF free-runs at `windowless_frame_rate`
+                // (60 Hz), which is what we want on both platforms.
                 shared_texture_enabled: 1,
                 ..Default::default()
             };
@@ -572,6 +570,13 @@ wrap_app! {
                 Some(&"remote-debugging-port".into()),
                 Some(&"9229".into()),
             );
+            // Deliberately no GPU-related switches — cefclient's
+            // Windows OSR sample and OBS's browser source both run at
+            // defaults, and it's the only combination that makes
+            // `OnAcceleratedPaint` produce readable pixels here
+            // (the other knobs — --use-angle, --use-adapter-luid,
+            // --in-process-gpu, --disable-gpu-sandbox — in any
+            // combination left the shared texture empty on reads).
         }
 
         fn browser_process_handler(&self) -> Option<cef::BrowserProcessHandler> {

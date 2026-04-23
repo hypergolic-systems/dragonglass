@@ -76,12 +76,35 @@ namespace Dragonglass.Hud
             // ReadWrite so we can write input events into the ring buffer
             // region while reading the frame header. The sidecar creates
             // the file; we just open it.
-            MemoryMappedFile mmf = MemoryMappedFile.CreateFromFile(
+            //
+            // Explicit FileStream with FileShare.ReadWrite | Delete is
+            // required on Windows: the sidecar has the file mmapped
+            // with write access, and the parameterized MMF.CreateFromFile
+            // overload internally opens with FileShare.Read, which
+            // conflicts with the sidecar's existing handle and throws
+            // "Could not open file". macOS doesn't enforce share modes
+            // so the simpler overload was fine there.
+            FileStream fs = new FileStream(
                 path,
                 FileMode.Open,
-                mapName: null,
-                capacity: 0,
-                access: MemoryMappedFileAccess.ReadWrite);
+                FileAccess.ReadWrite,
+                FileShare.ReadWrite | FileShare.Delete);
+            MemoryMappedFile mmf;
+            try
+            {
+                mmf = MemoryMappedFile.CreateFromFile(
+                    fs,
+                    mapName: null,
+                    capacity: 0,
+                    access: MemoryMappedFileAccess.ReadWrite,
+                    inheritability: HandleInheritability.None,
+                    leaveOpen: false);
+            }
+            catch
+            {
+                fs.Dispose();
+                throw;
+            }
 
             MemoryMappedViewAccessor accessor = null;
             try

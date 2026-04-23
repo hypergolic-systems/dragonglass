@@ -1,32 +1,48 @@
-// P/Invoke wrapper for DgHudNative.bundle.
+// P/Invoke wrapper for the DgHudNative native plugin.
 //
 // Resolved by Unity's native plugin loader at first DllImport call.
-// On macOS the plugin lives at GameData/Dragonglass_Hud/Plugins/DgHudNative.bundle
-// as a proper bundle directory, with a flat libDgHudNative.dylib
-// sibling for Mono loaders that prefer the plain dylib pattern.
+// On macOS the plugin lives at GameData/Dragonglass_Hud/Plugins/
+// DgHudNative.bundle as a proper bundle directory, with a flat
+// libDgHudNative.dylib sibling for Mono loaders that prefer the
+// plain dylib pattern. On Windows it's DgHudNative.dll in the same
+// Plugins/ dir — carrying a VS_VERSIONINFO resource so KSP's
+// UrlDir scanner can parse FileVersion without tripping.
 //
 // The zero-copy design has Unity own the destination texture:
 //
-//   1. C# creates a normal Texture2D(width, height, BGRA32).
+//   1. C# creates a Texture2D (BGRA32 on D3D11, RGBA32 on GL/Metal —
+//      see OverlayCanvas for the format-group requirement).
 //   2. C# passes `texture.GetNativeTexturePtr()` to the plugin via
-//      `SetTargetTexture`. On OpenGL Core this is a GLuint texture name;
-//      on Metal it's an `id<MTLTexture>` pointer.
-//   3. Each Update() C# calls `UpdatePending(id, gen)` to publish the
-//      latest sidecar IOSurface state, then
+//      `SetTargetTexture`. On OpenGL Core this is a GLuint texture
+//      name; on Metal an `id<MTLTexture>` pointer; on D3D11 an
+//      `ID3D11Texture2D*`.
+//   3. Each Update() C# calls `UpdatePending(id, gen)` to publish
+//      the latest sidecar canvas identity and
 //      `GL.IssuePluginEvent(renderEventFunc, 0)` to request a
 //      render-thread blit.
-//   4. Inside the render event, the plugin wraps the IOSurface as a
-//      source texture (CGL on GL, iosurface descriptor on Metal) and
-//      blits the contents into Unity's destination texture. No CPU
-//      round trip.
+//   4. Inside the render event, the plugin opens the sidecar's
+//      shared canvas (IOSurface on mac, named D3D11 NT handle on
+//      Windows) and copies it into Unity's destination texture. No
+//      CPU round trip.
 
 using System;
 using System.Runtime.InteropServices;
+using UnityEngine;
 
 namespace Dragonglass.Hud
 {
     internal static class NativeBridge
     {
+        // On Windows this resolves to Dragonglass_Hud/Plugins/
+        // DgHudNative.dll (same dir as the managed DLL — the only
+        // location Unity/Mono's PInvoke resolver reliably checks
+        // under KSP 1.12.5; LoadLibrary preloads + SetDllDirectory
+        // aren't honored). The DLL carries a winresource-generated
+        // VS_VERSIONINFO so KSP's UrlDir scanner can parse its
+        // FileVersion without halting at "Loading part upgrades".
+        // macOS loads DgHudNative.bundle / libDgHudNative.dylib from
+        // the same Plugins/ dir; the .dll extension filter means KSP
+        // doesn't try to scan those as managed assemblies.
         private const string Lib = "DgHudNative";
 
         /// <summary>Returns 1 if the native plugin's Unity load ran
@@ -137,8 +153,9 @@ namespace Dragonglass.Hud
             int b = 0;
             switch (deviceType)
             {
-                case UnityEngine.Rendering.GraphicsDeviceType.OpenGLCore: b = 1; break;
-                case UnityEngine.Rendering.GraphicsDeviceType.Metal:      b = 2; break;
+                case UnityEngine.Rendering.GraphicsDeviceType.OpenGLCore:   b = 1; break;
+                case UnityEngine.Rendering.GraphicsDeviceType.Metal:        b = 2; break;
+                case UnityEngine.Rendering.GraphicsDeviceType.Direct3D11:   b = 3; break;
                 default:
                     error = "unsupported graphics backend: " + deviceType;
                     return false;
@@ -177,6 +194,7 @@ namespace Dragonglass.Hud
             {
                 case 1: return "OpenGLCore";
                 case 2: return "Metal";
+                case 3: return "Direct3D11";
                 default: return "Unknown(" + backend + ")";
             }
         }

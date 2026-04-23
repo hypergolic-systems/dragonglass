@@ -1,0 +1,33 @@
+[package]
+name = "dg-hud-plugin-win"
+description = "Windows KSP native plugin: receives DXGI shared-texture handle from the sidecar, blits into Unity via D3D11"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lib]
+# Output DgHudNative.dll so the C# side's [DllImport("DgHudNative")] resolves.
+name = "DgHudNative"
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Security",
+] }
+# Share the canvas-handle-name function with the sidecar so the two
+# processes derive the same name from the canvas_id in SHM.
+dg-gpu = { path = "../dg-gpu" }
+
+# Embed a Win32 VS_VERSIONINFO resource so FileVersionInfo.FileVersion
+# is non-null. KSP's AssemblyLoader.LoadPluginInfo scans every .dll under
+# GameData/ and feeds that string to `new System.Version(...)` — a null
+# (the Rust cdylib default) throws ArgumentNullException and halts
+# GameDatabase loading mid-flight.
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1"
