@@ -114,3 +114,35 @@ jobs:
 
       - run: cargo check -p dg-sidecar
       - run: just sidecar-bundle
+
+  sidecar-windows:
+    name: Sidecar + native plugin (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v2
+
+      # Rust cache includes target/release/build/, so cef-dll-sys'
+      # extracted CEF distribution persists between runs after the
+      # first — no manual CEF download step needed on Windows (unlike
+      # macOS, which has a bundle-cef-app that expects CEF_PATH).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      # Builds the Windows-specific zip: CEF sidecar (dg-sidecar.exe,
+      # helper, libcef.dll, locales/) + native rendering plugin
+      # (DgHudNative.dll). The universal managed plugin and UI are
+      # produced by other CI jobs.
+      - name: Build Windows distribution zip
+        shell: bash
+        run: just dist-hud-windows-x64
+
+      - name: Upload Windows sidecar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dragonglass_Hud_windows_x64
+          path: release/Dragonglass_Hud_windows_x64.zip
+          if-no-files-found: error
+          retention-days: 30

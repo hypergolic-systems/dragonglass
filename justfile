@@ -160,7 +160,7 @@ native-build-darwin:
 
     echo "Built: $(pwd)/$bundle"
 
-# Future: native-build-linux, native-build-windows
+# Future: native-build-linux
 
 native-clean:
     rm -rf mod/native/darwin-universal/out
