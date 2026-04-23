@@ -7,6 +7,7 @@ import {
   PawTopic,
   PartTopic,
   StageTopic,
+  PartCatalogTopic,
 } from '../core/topics';
 import type { GameData } from '../core/game-data';
 import type {
@@ -19,6 +20,7 @@ import type { PartData, PartResourceData } from '../core/part-data';
 import { FlightSimulation } from './flight-sim';
 import { ASSEMBLY } from './assembly-fixture';
 import { SIM_STAGE_DATA, SIM_STAGE_DATA_EDITOR } from './stages-fixture';
+import { SIM_PART_CATALOG } from './catalog-fixture';
 import {
   ENGINES_SIM,
   CLUSTER_DRAIN_SECONDS,
@@ -75,6 +77,8 @@ export class SimulatedKsp implements Ksp {
     } else if (topic.name === StageTopic.name) {
       const stage = SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA;
       (cb as (frame: any) => void)(stage);
+    } else if (topic.name === PartCatalogTopic.name) {
+      (cb as (frame: any) => void)(SIM_PART_CATALOG);
     } else if (topic.name === EngineTopic.name) {
       (cb as (frame: any) => void)(this.lastEngines);
     } else if (topic.name.startsWith(PART_TOPIC_PREFIX)) {

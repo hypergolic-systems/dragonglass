@@ -12,3 +12,4 @@ export {
   type PartActionWindow,
   type PartActionWindowOps,
 } from './use-part-action-windows.svelte';
+export { usePartCatalog } from './use-part-catalog.svelte';

@@ -34,6 +34,7 @@ import {
   decodeStage,
   decodePaw,
   decodePart,
+  decodePartCatalog,
 } from './decoders';
 
 const PART_TOPIC_PREFIX = 'part/';
@@ -53,6 +54,7 @@ export class DragonglassTelemetry implements Ksp {
     engines: decodeEngines,
     stage: decodeStage,
     paw: decodePaw,
+    partCatalog: decodePartCatalog,
   };
   private readonly lastByTopic = new Map<string, unknown>();
 

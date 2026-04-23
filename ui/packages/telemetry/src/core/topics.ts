@@ -8,6 +8,7 @@ import type { EngineData } from './engine-data';
 import type { StageData } from './stage-data';
 import type { StageOps } from './stage-ops';
 import type { PartData, PawEvent, PartOps } from './part-data';
+import type { PartCatalogData } from './part-catalog-data';
 
 export const ClockTopic = topic<ClockData>('clock');
 export const GameTopic = topic<GameData>('game');
@@ -22,6 +23,14 @@ export const StageTopic = topic<StageData, StageOps>('stage');
  * `part-data.ts`.
  */
 export const PawTopic = topic<PawEvent>('paw');
+
+/**
+ * VAB/SPH parts catalog. One-shot emission on editor entry; the
+ * server doesn't re-emit mid-session because loaded parts don't
+ * change at runtime. Consumers should cache the first frame and
+ * reuse it for the duration of the editor scene.
+ */
+export const PartCatalogTopic = topic<PartCatalogData>('partCatalog');
 
 /**
  * Per-part telemetry topic. The topic name embeds the part's KSP

@@ -8,6 +8,7 @@
 
   import PartActionWindowHost from './FlightHUD/PartActionWindowHost.svelte';
   import StagingStack from './FlightHUD/StagingStack.svelte';
+  import PartCatalogPanel from './PartCatalogPanel.svelte';
   import './FlightHUD/FlightHUD.css';
 
   interface Props {
@@ -22,6 +23,11 @@
     <span class="editor-hud__brand">DRAGONGLASS</span>
     <span class="editor-hud__scene">{label}</span>
   </div>
+
+  <!-- Parts catalog on the left — replaces stock's EditorPartList
+       (suppressed via Harmony at editor boot). Click-to-pick isn't
+       wired yet; the panel is a readonly browser for the spike. -->
+  <PartCatalogPanel />
 
   <!-- Stage stack, pinned bottom-right to mirror stock's editor stager
        placement. The StagingStack component is reused verbatim — it

@@ -72,6 +72,11 @@ import type {
   PartModuleAlternator,
   PawEvent,
 } from '../core/part-data';
+import type {
+  PartCatalogData,
+  PartCatalogEntry,
+} from '../core/part-catalog-data';
+import { CATEGORY_BY_INDEX } from '../core/part-catalog-data';
 
 type ClockWire = [number, number | null];
 type GameWire = [string, string | null, number];
@@ -836,4 +841,31 @@ function decodeFields(raw: unknown[] | undefined): PartFieldData[] {
   const out = new Array<PartFieldData>(src.length);
   for (let i = 0; i < src.length; i++) out[i] = decodeField(src[i]);
   return out;
+}
+
+// PartCatalog: one-shot emission, so no scratch singleton —
+// consumers keep the returned array for the duration of the editor
+// session. Wire shape per entry:
+//   [name, title, categoryIdx, manufacturer, cost, mass,
+//    description, techRequired, tags]
+export function decodePartCatalog(raw: unknown): PartCatalogData {
+  const src = (raw as unknown[]) ?? [];
+  const entries = new Array<PartCatalogEntry>(src.length);
+  for (let i = 0; i < src.length; i++) {
+    const a = src[i] as unknown[];
+    const idx = a[2] as number;
+    const category = CATEGORY_BY_INDEX[idx] ?? 'Utility';
+    entries[i] = {
+      name: (a[0] as string) ?? '',
+      title: (a[1] as string) ?? '',
+      category,
+      manufacturer: (a[3] as string) ?? '',
+      cost: (a[4] as number) ?? 0,
+      mass: (a[5] as number) ?? 0,
+      description: (a[6] as string) ?? '',
+      techRequired: (a[7] as string) ?? '',
+      tags: (a[8] as string) ?? '',
+    };
+  }
+  return { entries };
 }

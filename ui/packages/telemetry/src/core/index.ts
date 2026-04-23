@@ -79,4 +79,11 @@ export {
   StageTopic,
   PawTopic,
   PartTopic,
+  PartCatalogTopic,
 } from './topics';
+export {
+  type PartCatalogData,
+  type PartCatalogEntry,
+  type PartCategory,
+  CATEGORY_BY_INDEX,
+} from './part-catalog-data';
