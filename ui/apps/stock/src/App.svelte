@@ -4,6 +4,7 @@
   import { DragonglassTelemetry } from '@dragonglass/telemetry/dragonglass';
   import type { Ksp } from '@dragonglass/telemetry/core';
   import FlightHUD from './screens/FlightHUD/FlightHUD.svelte';
+  import EditorHUD from './screens/EditorHUD.svelte';
   import ScenePlaceholder from './screens/ScenePlaceholder.svelte';
 
   // The sidecar launches us with `?ws=ws://127.0.0.1:8787/` to attach
@@ -31,6 +32,8 @@
 
 {#if game.scene === 'FLIGHT'}
   <FlightHUD />
+{:else if game.scene === 'EDITOR'}
+  <EditorHUD scene={game.scene} />
 {:else}
   <ScenePlaceholder scene={game.scene} />
 {/if}

@@ -1,21 +1,14 @@
-// Intercept the Flight-scene part right-click path. Stock KSP's
-// UIPartActionController.SelectPart(Part, bool, bool) is the bottleneck
-// that builds its per-part action window and raises
+// Intercept the part right-click path in Flight and the VAB/SPH editor.
+// Stock KSP's UIPartActionController.SelectPart(Part, bool, bool) is the
+// bottleneck that builds its per-part action window and raises
 // onPartActionUIShown; we prefix it, fan the part's persistentId out
 // to the UI via PawBus (which PawTopic turns into a wire event), and
 // return false to veto the stock window.
 //
-// Scene gate. The patch is a no-op outside Flight. UIPartActionController
-// is also used in the SPH/VAB editor for action group binding; letting
-// stock run there preserves editor functionality.
-//
-// Trade-off for MVP. Suppressing the stock PAW unconditionally in
-// Flight disables stock-only affordances that live on it — "Run
-// Experiment" buttons, Toggle Solar Panel, parachute deploy, etc. —
-// because our Dragonglass PAW only renders resources today. Pilots
-// still have keyboard action groups + space staging + (soon) our own
-// PartModule action surface to fall back on. Revisit if the
-// ergonomics cost outranks the feature gain on live play.
+// Scene gate. Flight + EDITOR (VAB and SPH) are handled; other scenes
+// (Main Menu, Space Center, Tracking Station) have no parts to click
+// anyway, but the early return keeps us defensive if stock ever reuses
+// the same controller path elsewhere.
 
 using Dragonglass.Telemetry;
 using HarmonyLib;
@@ -32,7 +25,8 @@ namespace Dragonglass.Hud.Patches
         [HarmonyPrefix]
         private static bool Prefix(Part part)
         {
-            if (HighLogic.LoadedScene != GameScenes.FLIGHT) return true;
+            GameScenes s = HighLogic.LoadedScene;
+            if (s != GameScenes.FLIGHT && s != GameScenes.EDITOR) return true;
             if (part == null) return false;
             PawBus.Raise(part.persistentId);
             return false;

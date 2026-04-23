@@ -630,6 +630,13 @@ export interface PartOps {
    * Unknown / out-of-range writes are silently dropped.
    */
   setField(moduleIndex: number, fieldId: string, value: boolean | number): void;
+  /**
+   * Editor-only. Tune a PartResource's amount (stock's "drag the
+   * fuel slider" in the VAB). Server gates on `GameScenes.EDITOR` and
+   * clamps to `[0, maxAmount]`; flight-time calls drop silently so
+   * the op surface can't be abused to refuel mid-burn.
+   */
+  setResource(resourceName: string, amount: number): void;
 }
 
 /**

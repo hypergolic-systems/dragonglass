@@ -22,6 +22,7 @@
   import { onDestroy } from 'svelte';
   import type { PartActionWindow } from '@dragonglass/telemetry/svelte';
   import type { PartResourceData } from '@dragonglass/telemetry/core';
+  import { useGame } from '@dragonglass/telemetry/svelte';
   import ModuleSection from './modules/ModuleSection.svelte';
 
   interface Props {
@@ -40,9 +41,18 @@
       fieldId: string,
       value: boolean | number,
     ) => void;
+    /** Editor-only: drag a PartResource amount. */
+    onSetResource: (resourceName: string, amount: number) => void;
   }
 
-  const { paw, onClose, onRaise, onPin, onInvokeEvent, onSetField }: Props = $props();
+  const { paw, onClose, onRaise, onPin, onInvokeEvent, onSetField, onSetResource }: Props = $props();
+
+  // Editor mode unlocks resource-amount scrubbing. The server also
+  // guards the setResource op by scene, but the UI hides the slider in
+  // flight so pilots don't get a disabled-looking widget next to their
+  // live fuel gauge.
+  const game = useGame();
+  const isEditor = $derived(game.scene === 'EDITOR');
 
   // Default offset from the anchor point so a just-opened PAW doesn't
   // cover the part it describes. Right-and-slightly-up reads as
@@ -149,14 +159,19 @@
   }
 
   // Rows materialised once per frame so the template can use them
-  // with stable keys and pre-computed gauge state.
+  // with stable keys and pre-computed gauge state. Raw numbers are
+  // carried alongside the formatted strings so the editor-only slider
+  // can drive setResource without reparsing.
   const rows = $derived(
     paw.data?.resources.map((r) => {
       const p = pct(r);
       return {
         key: r.name,
+        name: r.name,
         label: r.abbr,
         pct: p,
+        rawAvailable: r.available,
+        rawCapacity: r.capacity,
         state: stateFor(p),
         available: fmtVal(r.available),
         capacity: fmtVal(r.capacity),
@@ -165,6 +180,17 @@
       };
     }) ?? [],
   );
+
+  // Editor-only: clicking on the resource bar seeks the amount to
+  // that fraction of capacity. Drag is a stretch goal — for MVP a
+  // plain click is the fastest way to "fill to N%" parity with stock.
+  function seekResource(e: MouseEvent, row: { name: string; rawCapacity: number }) {
+    if (!isEditor) return;
+    const bar = e.currentTarget as HTMLElement;
+    const r = bar.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    onSetResource(row.name, frac * row.rawCapacity);
+  }
 
   const modules = $derived(paw.data?.modules ?? []);
   const empty = $derived(rows.length === 0 && modules.length === 0);
@@ -277,11 +303,18 @@
   {#if rows.length > 0}
     <ul class="paw__res">
       {#each rows as row (row.key)}
-        <li class="paw__res-row paw__res-row--{row.state}">
+        <li class="paw__res-row paw__res-row--{row.state}" class:paw__res-row--tunable={isEditor}>
           <span class="paw__res-label">{row.label}</span>
           <div class="paw__res-body">
             <div class="paw__res-bar-line">
-              <div class="paw__res-bar" role="presentation">
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div
+                class="paw__res-bar"
+                role="presentation"
+                onclick={(e) => seekResource(e, row)}
+                onpointerdown={(e) => e.stopPropagation()}
+              >
                 <div class="paw__res-bar-fill" style="--pct: {Math.min(100, row.pct)}%"></div>
                 <div class="paw__res-bar-scale" aria-hidden="true">
                   <span></span><span></span><span></span>
@@ -575,6 +608,16 @@
     background: rgba(46, 106, 85, 0.18);
     border: 1px solid var(--line);
     overflow: visible;
+  }
+  /* Editor-only: the bar becomes a seek target — click to set amount.
+     Cursor and a faint inner glow advertise the affordance without
+     disturbing the flight look. */
+  .paw__res-row--tunable .paw__res-bar {
+    cursor: pointer;
+  }
+  .paw__res-row--tunable .paw__res-bar:hover {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 4px rgba(126, 245, 184, 0.2);
   }
 
   .paw__res-bar-fill {

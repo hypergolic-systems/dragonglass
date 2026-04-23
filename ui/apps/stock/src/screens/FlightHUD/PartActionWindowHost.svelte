@@ -21,6 +21,8 @@
         paws.invokeEvent(paw.persistentId, moduleIndex, eventId)}
       onSetField={(moduleIndex, fieldId, value) =>
         paws.setField(paw.persistentId, moduleIndex, fieldId, value)}
+      onSetResource={(name, amount) =>
+        paws.setResource(paw.persistentId, name, amount)}
     />
   {/each}
 </div>

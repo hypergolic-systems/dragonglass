@@ -386,6 +386,13 @@ namespace Dragonglass.Telemetry.Topics
             public double Rate;
         }
 
+        // True while we're sampling from the VAB/SPH editor. Decides
+        // whether fields/events are guarded on `guiActiveEditor` or
+        // `guiActive`, and whether `PartResource.amount` is tunable via
+        // the new `setResource` op. Cached per-frame so SampleModules
+        // doesn't pay for the scene check on every field.
+        private bool _isEditor;
+
         private Part _part;
         private string _name = "part/unknown";
         private string _persistentIdStr = "";
@@ -436,6 +443,8 @@ namespace Dragonglass.Telemetry.Topics
         {
             if (_part == null) return;
 
+            _isEditor = HighLogic.LoadedScene == GameScenes.EDITOR;
+
             bool changed = false;
 
             // Part title — localized. Stable over the part's lifetime
@@ -445,8 +454,10 @@ namespace Dragonglass.Telemetry.Topics
             if (title != _partTitle) { _partTitle = title; changed = true; }
 
             // Screen position. CEF-viewport pixels, top-left origin —
-            // matches the HUD's mouse-forwarding frame.
-            Camera cam = FlightCamera.fetch != null ? FlightCamera.fetch.mainCamera : null;
+            // matches the HUD's mouse-forwarding frame. Use the
+            // FlightCamera in flight, EditorLogic's camera in VAB/SPH;
+            // both expose a standard Unity Camera via different paths.
+            Camera cam = ResolveSceneCamera();
             if (cam != null && _part.transform != null)
             {
                 Vector3 screen = cam.WorldToScreenPoint(_part.transform.position);
@@ -497,6 +508,25 @@ namespace Dragonglass.Telemetry.Topics
             }
 
             if (changed) MarkDirty();
+        }
+
+        // Scene-aware camera resolution. Flight uses FlightCamera.fetch;
+        // VAB/SPH both put their camera on EditorCamera.Instance. Stock
+        // actually routes both editor cameras (VABCamera / SPHCamera)
+        // through the same EditorCamera host, so this one branch
+        // suffices for both.
+        private static Camera ResolveSceneCamera()
+        {
+            GameScenes s = HighLogic.LoadedScene;
+            if (s == GameScenes.FLIGHT)
+            {
+                return FlightCamera.fetch != null ? FlightCamera.fetch.mainCamera : null;
+            }
+            if (s == GameScenes.EDITOR)
+            {
+                return EditorCamera.Instance != null ? EditorCamera.Instance.cam : null;
+            }
+            return null;
         }
 
         private void SampleModules(List<ModuleFrame> dest)
@@ -623,7 +653,11 @@ namespace Dragonglass.Telemetry.Topics
                     continue;
                 }
 
-                // Generic fallback path — scan events + fields.
+                // Generic fallback path — scan events + fields. Scene
+                // gate: Flight honours `guiActive`, Editor `guiActiveEditor`.
+                // Some stock fields (e.g. Decoupler.Decouple) set one
+                // or the other; checking both here would leak editor-
+                // only controls into flight PAWs (and vice versa).
                 List<EventFrame> events = null;
                 BaseEventList evs = mod.Events;
                 if (evs != null)
@@ -632,7 +666,9 @@ namespace Dragonglass.Telemetry.Topics
                     {
                         BaseEvent ev = evs.GetByIndex(j);
                         if (ev == null) continue;
-                        if (!ev.active || !ev.guiActive) continue;
+                        if (!ev.active) continue;
+                        bool visible = _isEditor ? ev.guiActiveEditor : ev.guiActive;
+                        if (!visible) continue;
                         if (ev.advancedTweakable && !GameSettings.ADVANCED_TWEAKABLES) continue;
                         if (events == null) events = new List<EventFrame>();
                         events.Add(new EventFrame
@@ -651,7 +687,8 @@ namespace Dragonglass.Telemetry.Topics
                     {
                         BaseField f = fields[j];
                         if (f == null) continue;
-                        if (!f.guiActive) continue;
+                        bool visible = _isEditor ? f.guiActiveEditor : f.guiActive;
+                        if (!visible) continue;
                         if (f.advancedTweakable && !GameSettings.ADVANCED_TWEAKABLES) continue;
                         if (fieldRows == null) fieldRows = new List<FieldFrame>();
                         fieldRows.Add(BuildFieldFrame(f, mod));
@@ -1416,9 +1453,14 @@ namespace Dragonglass.Telemetry.Topics
         // Dispatch a single field into a typed row. `host` is the
         // PartModule that owns the field — BaseField.GetValue wants
         // it to resolve through `FieldInfo.GetValue`.
-        private static FieldFrame BuildFieldFrame(BaseField f, PartModule host)
+        private FieldFrame BuildFieldFrame(BaseField f, PartModule host)
         {
-            UI_Control ctrl = f.uiControlFlight;
+            // Stock fields can carry different UI_Controls per scene
+            // (`uiControlFlight` vs `uiControlEditor`); a slider might
+            // be a UI_FloatEdit in the editor and a UI_Label in flight,
+            // or vice versa. Pick the scene-matching control so the
+            // widget kind we ship reflects what the pilot sees.
+            UI_Control ctrl = _isEditor ? f.uiControlEditor : f.uiControlFlight;
 
             if (ctrl is UI_Toggle tog)
             {
@@ -2341,7 +2383,9 @@ namespace Dragonglass.Telemetry.Topics
                         if (mod == null || !mod.isEnabled) return;
                         BaseEvent ev = mod.Events != null ? mod.Events[eventName] : null;
                         if (ev == null) return;
-                        if (!ev.active || !ev.guiActive) return;
+                        if (!ev.active) return;
+                        bool editor = HighLogic.LoadedScene == GameScenes.EDITOR;
+                        if (editor ? !ev.guiActiveEditor : !ev.guiActive) return;
                         // Invoke on the main thread — OpDispatcher.Drain
                         // runs there, so this is already safe.
                         ev.Invoke();
@@ -2363,8 +2407,37 @@ namespace Dragonglass.Telemetry.Topics
                         PartModule mod = mods[moduleIdx];
                         if (mod == null || !mod.isEnabled) return;
                         BaseField f = mod.Fields != null ? mod.Fields[fieldName] : null;
-                        if (f == null || !f.guiActive) return;
+                        if (f == null) return;
+                        bool editor2 = HighLogic.LoadedScene == GameScenes.EDITOR;
+                        if (editor2 ? !f.guiActiveEditor : !f.guiActive) return;
                         SetFieldFromWire(f, mod, args[2]);
+                        MarkDirty();
+                    }
+                    break;
+                case "setResource":
+                    // args: [resourceName:string, amount:double]
+                    // Editor-only: stock allows dragging PartResource.amount
+                    // in the VAB/SPH via its own UI_FloatEdit; in flight the
+                    // resource is mutated by engines / consumers. We gate on
+                    // scene so a stray message from the client doesn't edit
+                    // fuel mid-burn.
+                    if (HighLogic.LoadedScene != GameScenes.EDITOR) return;
+                    if (args != null && args.Count >= 2
+                        && args[0] is string resName)
+                    {
+                        double amount;
+                        try { amount = System.Convert.ToDouble(args[1]); }
+                        catch { return; }
+                        PartResourceList rl = _part.Resources;
+                        if (rl == null) return;
+                        PartResource r = rl.Get(resName);
+                        if (r == null) return;
+                        // Clamp to [0, maxAmount] — the stock UI_FloatEdit
+                        // does the same, and preventing overflows here
+                        // keeps the part mass math consistent.
+                        if (amount < 0) amount = 0;
+                        if (amount > r.maxAmount) amount = r.maxAmount;
+                        r.amount = amount;
                         MarkDirty();
                     }
                     break;

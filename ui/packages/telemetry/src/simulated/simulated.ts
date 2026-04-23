@@ -5,6 +5,7 @@ import {
   AssemblyTopic,
   EngineTopic,
   PawTopic,
+  PartTopic,
 } from '../core/topics';
 import type { GameData } from '../core/game-data';
 import type {
@@ -25,8 +26,10 @@ import { SIMULATED_PARTS, type SimulatedPart } from './parts-fixture';
 
 const PART_TOPIC_PREFIX = 'part/';
 
-// Simulated game state: pin to FLIGHT so `just ui-dev` lands on the
-// flight UI without needing KSP running.
+// Simulated game state: starts in FLIGHT so `just ui-dev` lands on
+// the flight UI without needing KSP running. F2 toggles to EDITOR
+// so the editor PAW path is reachable from the browser — the same
+// right-click-opens-a-PAW flow applies.
 const SIM_GAME: GameData = {
   scene: 'FLIGHT',
   activeVesselId: 'sim-vessel',
@@ -72,9 +75,11 @@ export class SimulatedKsp implements Ksp {
     } else if (topic.name.startsWith(PART_TOPIC_PREFIX)) {
       // PartTopic(id) — prime the cache so the first subscriber on a
       // never-before-seen part gets a frame this tick rather than
-      // waiting for the 10 Hz loop to come around.
+      // waiting for the 10 Hz loop to come around. Editor skips the
+      // drain model so fixture loadouts stay at 100%.
       const partId = topic.name.slice(PART_TOPIC_PREFIX.length);
-      const cached = this.lastParts.get(partId) ?? buildPart(partId, this.elapsed);
+      const drained = SIM_GAME.scene !== 'EDITOR';
+      const cached = this.lastParts.get(partId) ?? buildPart(partId, this.elapsed, drained);
       this.lastParts.set(partId, cached);
       (cb as (frame: any) => void)(cached);
     }
@@ -99,6 +104,29 @@ export class SimulatedKsp implements Ksp {
       } else if (op === 'setRcs' && typeof args[0] === 'boolean') {
         this.sim.setRcs(args[0]);
       }
+      return;
+    }
+
+    // Editor resource tweaking. Only honour in EDITOR so the
+    // simulator mirrors the server's scene gate — keeps demos honest.
+    if (topic.name.startsWith(PART_TOPIC_PREFIX)
+        && op === 'setResource'
+        && SIM_GAME.scene === 'EDITOR'
+        && typeof args[0] === 'string'
+        && typeof args[1] === 'number') {
+      const partId = topic.name.slice(PART_TOPIC_PREFIX.length);
+      const prev = this.lastParts.get(partId);
+      if (!prev) return;
+      const name = args[0];
+      const amount = args[1];
+      const resources = prev.resources.map((r) =>
+        r.name === name
+          ? { ...r, available: Math.max(0, Math.min(r.capacity, amount)) }
+          : r,
+      );
+      const next: PartData = { ...prev, resources };
+      this.lastParts.set(partId, next);
+      this.dispatch(PartTopic(partId), next);
     }
   }
 
@@ -130,6 +158,14 @@ export class SimulatedKsp implements Ksp {
       const k = e.key.toLowerCase();
       if (['w', 'a', 's', 'd', 'q', 'e', 't', 'm'].includes(k)) {
         e.preventDefault();
+      }
+      // F2 flips the simulated scene between FLIGHT and EDITOR so the
+      // editor PAW path is exercisable without a KSP install.
+      if (k === 'f2') {
+        e.preventDefault();
+        SIM_GAME.scene = SIM_GAME.scene === 'FLIGHT' ? 'EDITOR' : 'FLIGHT';
+        this.dispatch(GameTopic, SIM_GAME);
+        return;
       }
       if (k === 't') {
         sim.resetPending = true;
@@ -177,10 +213,20 @@ export class SimulatedKsp implements Ksp {
       // Re-emit part frames only for parts that have a live subscriber
       // this tick. The positional Lissajous drifts slowly, so even
       // idle PAWs see visibly moving leader lines.
+      //
+      // In EDITOR the simulated drain is suppressed — stock fuel tanks
+      // don't leak on the assembly floor, and we need the
+      // `setResource` writes to stick across ticks rather than being
+      // clobbered by the drain model every frame.
+      const editor = SIM_GAME.scene === 'EDITOR';
       for (const name of this.subs.keys()) {
         if (!name.startsWith(PART_TOPIC_PREFIX)) continue;
         const partId = name.slice(PART_TOPIC_PREFIX.length);
-        const frame = buildPart(partId, this.elapsed);
+        const built = buildPart(partId, this.elapsed, !editor);
+        const prev = this.lastParts.get(partId);
+        const frame: PartData = editor && prev
+          ? { ...built, resources: prev.resources }
+          : built;
         this.lastParts.set(partId, frame);
         const bucket = this.subs.get(name);
         if (bucket) for (const cb of bucket) cb(frame);
@@ -219,7 +265,7 @@ export class SimulatedKsp implements Ksp {
 
 const DRAIN_CYCLE_SECONDS = 180;
 
-function buildPart(persistentId: string, elapsed: number): PartData {
+function buildPart(persistentId: string, elapsed: number, drain = true): PartData {
   const fixture = SIMULATED_PARTS.find((p) => p.persistentId === persistentId);
   if (!fixture) {
     return {
@@ -230,11 +276,17 @@ function buildPart(persistentId: string, elapsed: number): PartData {
       modules: [],
     };
   }
+  // `drain=false` (editor mode) keeps the fixture's declared amount /
+  // capacity / flow verbatim — stock VAB resources are frozen until
+  // the player tunes them, so the simulator mirrors that.
+  const resources = drain
+    ? fixture.resources.map((r) => scaleResource(r, elapsed))
+    : fixture.resources.map((r) => ({ ...r, flow: undefined }));
   return {
     persistentId,
     name: fixture.name,
     screen: screenPosFor(fixture, elapsed),
-    resources: fixture.resources.map((r) => scaleResource(r, elapsed)),
+    resources,
     modules: fixture.modules,
   };
 }

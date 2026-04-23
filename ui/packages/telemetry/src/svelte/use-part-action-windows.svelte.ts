@@ -59,6 +59,16 @@ export interface PartActionWindowOps {
     fieldId: string,
     value: boolean | number,
   ): void;
+  /**
+   * Editor-only. Write a new amount to a PartResource — stock's VAB
+   * "drag the slider" for fuel loadout. Server clamps to
+   * `[0, maxAmount]` and drops the op outside the editor scene.
+   */
+  setResource(
+    persistentId: string,
+    resourceName: string,
+    amount: number,
+  ): void;
 }
 
 /**
@@ -150,5 +160,13 @@ export function usePartActionWindows(): PartActionWindowOps {
     telemetry.send(PartTopic(persistentId), 'setField', moduleIndex, fieldId, value);
   }
 
-  return { windows, close, raise, setPin, invokeEvent, setField };
+  function setResource(
+    persistentId: string,
+    resourceName: string,
+    amount: number,
+  ): void {
+    telemetry.send(PartTopic(persistentId), 'setResource', resourceName, amount);
+  }
+
+  return { windows, close, raise, setPin, invokeEvent, setField, setResource };
 }

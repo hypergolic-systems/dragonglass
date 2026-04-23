@@ -9,9 +9,10 @@
 // free.
 //
 // Always-on. The component lives on the persistent telemetry host,
-// so it handles subscribe / unsubscribe signals regardless of scene;
-// outside Flight, FlightGlobals.PersistentLoadedPartIds yields no
-// matches and the handlers no-op silently.
+// so it handles subscribe / unsubscribe signals regardless of scene.
+// In flight, parts live in FlightGlobals.PersistentLoadedPartIds; in
+// the VAB/SPH editor, in EditorLogic.fetch.ship.parts. We walk both,
+// so the same `part/<id>` topic resolves in either context.
 
 using UnityEngine;
 
@@ -56,9 +57,35 @@ namespace Dragonglass.Telemetry.Topics
                 return false;
             if (!uint.TryParse(topicName.Substring(PartPrefix.Length), out uint id))
                 return false;
-            if (FlightGlobals.PersistentLoadedPartIds == null) return false;
-            FlightGlobals.PersistentLoadedPartIds.TryGetValue(id, out part);
-            return part != null;
+
+            // Flight path: the authoritative loaded-part map.
+            if (FlightGlobals.PersistentLoadedPartIds != null
+                && FlightGlobals.PersistentLoadedPartIds.TryGetValue(id, out part)
+                && part != null)
+            {
+                return true;
+            }
+
+            // Editor path: scan the ship under construction. Editor
+            // parts aren't registered in PersistentLoadedPartIds
+            // (stock reserves that dictionary for in-flight parts).
+            if (HighLogic.LoadedScene == GameScenes.EDITOR
+                && EditorLogic.fetch != null
+                && EditorLogic.fetch.ship != null)
+            {
+                ShipConstruct ship = EditorLogic.fetch.ship;
+                for (int i = 0; i < ship.parts.Count; i++)
+                {
+                    Part p = ship.parts[i];
+                    if (p != null && p.persistentId == id)
+                    {
+                        part = p;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
     }
 }
