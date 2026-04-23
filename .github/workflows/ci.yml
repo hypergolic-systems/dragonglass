@@ -198,3 +198,78 @@ jobs:
           path: release/Dragonglass_Hud_windows_x64.zip
           if-no-files-found: error
           retention-days: 30
+
+  release-dev:
+    # Per-commit prereleases on main. Each push produces a tag
+    # `dev-<short-sha>` with all four zips attached, so non-devs can
+    # grab a point-in-time build without rebuilding from source. The
+    # prune step at the end keeps only the 10 most recent dev
+    # releases so the tag list stays manageable — older ones (and
+    # their tags) are deleted.
+    name: Publish dev prerelease
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [package-main, package-darwin, package-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required by softprops/action-gh-release + gh release delete
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dl
+          pattern: 'Dragonglass_*'
+          merge-multiple: true
+
+      - id: meta
+        run: echo "short_sha=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-${{ steps.meta.outputs.short_sha }}
+          name: "Dev build ${{ steps.meta.outputs.short_sha }}"
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          files: |
+            dl/Dragonglass_Hud.zip
+            dl/Dragonglass_Telemetry.zip
+            dl/Dragonglass_Hud_darwin_arm64.zip
+            dl/Dragonglass_Hud_windows_x64.zip
+          body: |
+            Automated dev build from commit ${{ github.sha }}.
+
+            **Installation:** extract into your KSP install's `GameData/`
+            folder. You always need the two universal zips, plus one
+            platform-specific zip for your OS:
+
+            | Zip | When to use |
+            | --- | --- |
+            | `Dragonglass_Hud.zip` | **all platforms** — managed plugin + Stock UI |
+            | `Dragonglass_Telemetry.zip` | **all platforms** — telemetry WebSocket server |
+            | `Dragonglass_Hud_darwin_arm64.zip` | macOS (Apple Silicon) |
+            | `Dragonglass_Hud_windows_x64.zip` | Windows x64 |
+
+            > ⚠️ Dev prereleases are automatically pruned to the 10 most recent.
+
+      - name: Prune old dev prereleases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Keep the 10 most recent `dev-*` prereleases; delete the rest,
+          # along with their underlying git tags. Newest-first sort via
+          # createdAt (desc), slice off the first 10, drop the tail.
+          gh release list --limit 100 \
+              --json tagName,isPrerelease,createdAt \
+            | jq -r '
+                map(select(.isPrerelease and (.tagName | startswith("dev-"))))
+                | sort_by(.createdAt) | reverse
+                | .[10:] | .[] | .tagName
+              ' \
+            | while read -r tag; do
+                [ -z "$tag" ] && continue
+                echo "Pruning $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done
