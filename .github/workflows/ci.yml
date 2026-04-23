@@ -71,8 +71,53 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just native-test
 
-  sidecar-darwin:
-    name: Sidecar (dg-sidecar + CEF bundle)
+  package-main:
+    # Platform-independent mod zips: Dragonglass_Hud.zip (managed
+    # plugin + Stock UI) and Dragonglass_Telemetry.zip (standalone
+    # managed plugin). These ride on every platform-specific install,
+    # so they're built once on Linux and shipped as-is.
+    name: Package main mods (Hud + Telemetry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - uses: extractions/setup-just@v2
+      - run: npm ci
+        working-directory: ui
+      # dist-telemetry produces the standalone Telemetry zip; dist-hud
+      # builds the UI, the managed Hud DLL, and the combined zip.
+      # Both recipes write into release/ at the repo root.
+      - run: just dist-telemetry
+      - run: just dist-hud
+      - name: Upload Dragonglass_Hud.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dragonglass_Hud
+          path: release/Dragonglass_Hud.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload Dragonglass_Telemetry.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dragonglass_Telemetry
+          path: release/Dragonglass_Telemetry.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  package-darwin:
+    # macOS-specific zip: native rendering plugin
+    # (DgHudNative.bundle + libDgHudNative.dylib) + the CEF sidecar
+    # .app bundle. Produced by `just dist-hud-darwin-arm64`, which
+    # transitively runs native-build-darwin and sidecar-bundle — so
+    # this job doubles as the sidecar build check.
+    name: Package macOS (native plugin + sidecar)
     runs-on: macos-14
     env:
       # Keep CEF_TARBALL in sync with the `cef` crate version in
@@ -112,11 +157,18 @@ jobs:
           features: build-util
           bin: bundle-cef-app
 
-      - run: cargo check -p dg-sidecar
-      - run: just sidecar-bundle
+      - run: just dist-hud-darwin-arm64
 
-  sidecar-windows:
-    name: Sidecar + native plugin (Windows)
+      - name: Upload Dragonglass_Hud_darwin_arm64.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dragonglass_Hud_darwin_arm64
+          path: release/Dragonglass_Hud_darwin_arm64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  package-windows:
+    name: Package Windows (native plugin + sidecar)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
