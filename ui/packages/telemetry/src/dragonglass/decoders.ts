@@ -54,6 +54,22 @@ import type {
   PartModuleParachute,
   ParachuteState,
   ParachuteSafeState,
+  PartModuleCommand,
+  CommandControlState,
+  PartModuleReactionWheel,
+  ReactionWheelState,
+  PartModuleRcs,
+  PartModuleDecoupler,
+  PartModuleDataTransmitter,
+  AntennaType,
+  PartModuleDeployableAntenna,
+  PartModuleDeployableRadiator,
+  PartModuleActiveRadiator,
+  PartModuleResourceHarvester,
+  HarvesterType,
+  PartModuleResourceConverter,
+  PartModuleControlSurface,
+  PartModuleAlternator,
   PawEvent,
 } from '../core/part-data';
 
@@ -631,6 +647,162 @@ function decodeModule(raw: unknown): PartModuleData {
         safeState: (a[3] as ParachuteSafeState) ?? 'none',
         deployAltitude: (a[4] as number) ?? 1000,
         minPressure: (a[5] as number) ?? 0.01,
+      };
+      return out;
+    }
+    case 'M': {
+      const out: PartModuleCommand = {
+        kind: 'command',
+        moduleName,
+        crewCount: (a[2] as number) ?? 0,
+        minimumCrew: (a[3] as number) ?? 0,
+        controlState: (a[4] as CommandControlState) ?? 'nominal',
+        hibernate: (a[5] as boolean) ?? false,
+        hibernateOnWarp: (a[6] as boolean) ?? false,
+      };
+      return out;
+    }
+    case 'W': {
+      const out: PartModuleReactionWheel = {
+        kind: 'reactionWheel',
+        moduleName,
+        state: (a[2] as ReactionWheelState) ?? 'disabled',
+        authorityLimiter: (a[3] as number) ?? 100,
+        pitchTorque: (a[4] as number) ?? 0,
+        yawTorque: (a[5] as number) ?? 0,
+        rollTorque: (a[6] as number) ?? 0,
+        actuatorMode: (a[7] as number) ?? 0,
+      };
+      return out;
+    }
+    case 'T': {
+      const propRaw = (a[6] as unknown[] | undefined) ?? [];
+      const propellants = new Array<PartEnginePropellant>(propRaw.length);
+      for (let i = 0; i < propRaw.length; i++) {
+        const p = propRaw[i] as unknown[];
+        propellants[i] = {
+          name: p[0] as string,
+          displayName: p[1] as string,
+          ratio: p[2] as number,
+          currentAmount: p[3] as number,
+          totalAvailable: p[4] as number,
+        };
+      }
+      const out: PartModuleRcs = {
+        kind: 'rcs',
+        moduleName,
+        enabled: (a[2] as boolean) ?? true,
+        thrustLimit: (a[3] as number) ?? 100,
+        thrusterPower: (a[4] as number) ?? 0,
+        realIsp: (a[5] as number) ?? 0,
+        propellants,
+      };
+      return out;
+    }
+    case 'D': {
+      const out: PartModuleDecoupler = {
+        kind: 'decoupler',
+        moduleName,
+        isDecoupled: (a[2] as boolean) ?? false,
+        isAnchored: (a[3] as boolean) ?? false,
+        ejectionForce: (a[4] as number) ?? 0,
+      };
+      return out;
+    }
+    case 'A': {
+      const out: PartModuleDataTransmitter = {
+        kind: 'transmitter',
+        moduleName,
+        antennaType: (a[2] as AntennaType) ?? 'direct',
+        antennaPower: (a[3] as number) ?? 0,
+        packetSize: (a[4] as number) ?? 0,
+        packetInterval: (a[5] as number) ?? 0,
+        busy: (a[6] as boolean) ?? false,
+      };
+      return out;
+    }
+    case 'Y': {
+      const out: PartModuleDeployableAntenna = {
+        kind: 'deployAntenna',
+        moduleName,
+        state: (a[2] as SolarPanelState) ?? 'retracted',
+        retractable: (a[3] as boolean) ?? true,
+      };
+      return out;
+    }
+    case 'Z': {
+      const out: PartModuleDeployableRadiator = {
+        kind: 'deployRadiator',
+        moduleName,
+        state: (a[2] as SolarPanelState) ?? 'retracted',
+        retractable: (a[3] as boolean) ?? true,
+      };
+      return out;
+    }
+    case 'K': {
+      const out: PartModuleActiveRadiator = {
+        kind: 'activeRadiator',
+        moduleName,
+        isCooling: (a[2] as boolean) ?? false,
+        maxTransfer: (a[3] as number) ?? 0,
+        status: (a[4] as string) ?? '',
+      };
+      return out;
+    }
+    case 'J': {
+      const out: PartModuleResourceHarvester = {
+        kind: 'harvester',
+        moduleName,
+        active: (a[2] as boolean) ?? false,
+        status: (a[3] as string) ?? '',
+        resourceName: (a[4] as string) ?? '',
+        harvesterType: (a[5] as HarvesterType) ?? 'planetary',
+        abundance: (a[6] as number) ?? 0,
+        thermalEfficiency: (a[7] as number) ?? 0,
+        loadCapacity: (a[8] as number) ?? 0,
+      };
+      return out;
+    }
+    case 'U': {
+      const inRaw = (a[5] as unknown[] | undefined) ?? [];
+      const outRaw = (a[6] as unknown[] | undefined) ?? [];
+      const pickFlow = (row: unknown): GeneratorResourceFlow => {
+        const r = row as unknown[];
+        return { name: r[0] as string, rate: r[1] as number };
+      };
+      const out: PartModuleResourceConverter = {
+        kind: 'converter',
+        moduleName,
+        active: (a[2] as boolean) ?? false,
+        converterName: (a[3] as string) ?? '',
+        status: (a[4] as string) ?? '',
+        inputs: inRaw.map(pickFlow),
+        outputs: outRaw.map(pickFlow),
+      };
+      return out;
+    }
+    case 'F': {
+      const out: PartModuleControlSurface = {
+        kind: 'controlSurface',
+        moduleName,
+        ignorePitch: (a[2] as boolean) ?? false,
+        ignoreYaw: (a[3] as boolean) ?? false,
+        ignoreRoll: (a[4] as boolean) ?? false,
+        authorityLimiter: (a[5] as number) ?? 100,
+        deploy: (a[6] as boolean) ?? false,
+        deployInvert: (a[7] as boolean) ?? false,
+        deployAngle: (a[8] as number) ?? 0,
+      };
+      return out;
+    }
+    case 'N': {
+      const out: PartModuleAlternator = {
+        kind: 'alternator',
+        moduleName,
+        outputRate: (a[2] as number) ?? 0,
+        outputName: (a[3] as string) ?? '',
+        outputUnits: (a[4] as string) ?? '',
+        engineRunning: (a[5] as boolean) ?? false,
       };
       return out;
     }

@@ -81,6 +81,75 @@
 //       safeState   : "safe" | "risky" | "unsafe" | "none"
 //       Client invokes 'Deploy' / 'CutParachute' / 'Repack' via invokeEvent.
 //
+//   ['M', moduleName, crewCount, minimumCrew, controlState,
+//         hibernate, hibernateOnWarp]                   — ModuleCommand
+//       controlState : "nominal" | "partial" | "uncrewed" | "hibernating" | "nosignal"
+//       Events: MakeReference, RenameVessel. Fields: hibernate /
+//       hibernateOnWarp via setField.
+//
+//   ['W', moduleName, state, authorityLimiter,
+//         pitchTorque, yawTorque, rollTorque,
+//         actuatorMode]                                 — ModuleReactionWheel
+//       state       : "active" | "disabled" | "broken"
+//       actuatorMode: 0 Normal / 1 SAS-only / 2 Pilot-only
+//       Events: OnToggle. Fields: authorityLimiter (slider),
+//       actuatorModeCycle (option via setField).
+//
+//   ['T', moduleName, enabled, thrustLimit, thrusterPower,
+//         realIsp, [propellants]]                       — ModuleRCS(FX)
+//       propellants : [[name, displayName, ratio, currentAmount, totalAvailable], ...]
+//       Fields: rcsEnabled (toggle), thrustPercentage (slider) via
+//       setField.
+//
+//   ['D', moduleName, isDecoupled, isAnchored, ejectionForce]
+//                                                      — ModuleDecouple(rBase)
+//       isAnchored : true for ModuleAnchoredDecoupler (radial
+//                    separators); false for stack ModuleDecouple.
+//       Event: Decouple (guarded once isDecoupled).
+//
+//   ['A', moduleName, antennaType, antennaPower,
+//         packetSize, packetInterval, busy]             — ModuleDataTransmitter
+//       antennaType : "direct" | "relay" | "internal"
+//       busy        : true while a transmission is in progress.
+//       Events: StartTransmission / StopTransmission.
+//
+//   ['Y', moduleName, state, retractable]              — ModuleDeployableAntenna
+//       state       : same 5-state ladder as solar.
+//
+//   ['Z', moduleName, state, retractable]              — ModuleDeployableRadiator
+//       state       : same 5-state ladder as solar.
+//
+//   ['K', moduleName, isCooling, maxTransfer, status]  — ModuleActiveRadiator
+//       maxTransfer : kW of peak heat transfer (maxEnergyTransfer).
+//       status      : stock status string ("Nominal", "Off", ...).
+//       Events: Activate / Shutdown.
+//
+//   ['J', moduleName, active, status, resourceName,
+//         harvesterType, abundance, thermalEfficiency,
+//         loadCapacity]                                 — ModuleResourceHarvester
+//       harvesterType : "planetary" | "oceanic" | "atmospheric" | "exospheric"
+//       abundance     : 0..1 resource abundance at drill site (or current depth).
+//       thermalEfficiency, loadCapacity: 0..1 fractions.
+//       Events: StartResourceConverter / StopResourceConverter.
+//
+//   ['U', moduleName, active, converterName, status,
+//         [inputs], [outputs]]                          — ModuleResourceConverter
+//       inputs/outputs : [[resourceName, rate], ...]
+//       Events: StartResourceConverter / StopResourceConverter.
+//       (A stock ISRU exposes one module per mode; each renders
+//        as its own row in the PAW.)
+//
+//   ['F', moduleName, ignorePitch, ignoreYaw, ignoreRoll,
+//         authorityLimiter, deploy, deployInvert,
+//         deployAngle]                                  — ModuleControlSurface
+//       Also catches ModuleAeroSurface (airbrake) via inheritance.
+//       Fields exposed: all seven above via setField.
+//
+//   ['N', moduleName, outputRate, outputName,
+//         outputUnits, engineRunning]                   — ModuleAlternator
+//       Passive readout — alternator output scales with the
+//       attached engine's throttle. No client actions.
+//
 // Typed modules drive their interactions via the generic
 // `invokeEvent` / `setField` ops with hard-coded KSP member names
 // (e.g. 'Activate' / 'Shutdown' / 'thrustPercentage'). The server
@@ -231,6 +300,84 @@ namespace Dragonglass.Telemetry.Topics
             public string ChuteSafeState;     // "safe" / "risky" / "unsafe" / "none"
             public float ChuteDeployAltitude;
             public float ChuteMinPressure;
+
+            // Command — valid only when Kind == 'M'.
+            public int CmdCrewCount;
+            public int CmdMinimumCrew;
+            public string CmdControlState;    // "nominal" / "partial" / "uncrewed" / "hibernating" / "nosignal"
+            public bool CmdHibernate;
+            public bool CmdHibernateOnWarp;
+
+            // Reaction wheel — valid only when Kind == 'W'.
+            public string RwheelState;        // "active" / "disabled" / "broken"
+            public float RwheelAuthority;     // 0..100
+            public float RwheelPitchTorque;
+            public float RwheelYawTorque;
+            public float RwheelRollTorque;
+            public int RwheelActuatorMode;    // 0 Normal / 1 SAS-only / 2 Pilot-only
+
+            // RCS — valid only when Kind == 'T'.
+            public bool RcsEnabled;
+            public float RcsThrustLimit;      // 0..100
+            public float RcsThrusterPower;    // kN per thruster at 100%
+            public float RcsRealIsp;
+            public List<EnginePropellantFrame> RcsPropellants;
+
+            // Decoupler — valid only when Kind == 'D'.
+            public bool DecoupleIsDecoupled;
+            public bool DecoupleIsAnchored;
+            public float DecoupleEjectionForce;
+
+            // Data transmitter — valid only when Kind == 'A'.
+            public string AntennaType;        // "direct" / "relay" / "internal"
+            public double AntennaPower;
+            public float AntennaPacketSize;
+            public float AntennaPacketInterval;
+            public bool AntennaBusy;
+
+            // Deployable antenna — valid only when Kind == 'Y'.
+            public string DeployAntennaState;
+            public bool DeployAntennaRetractable;
+
+            // Deployable radiator — valid only when Kind == 'Z'.
+            public string DeployRadiatorState;
+            public bool DeployRadiatorRetractable;
+
+            // Active radiator — valid only when Kind == 'K'.
+            public bool ActiveRadiatorIsCooling;
+            public double ActiveRadiatorMaxTransfer;
+            public string ActiveRadiatorStatus;
+
+            // Resource harvester — valid only when Kind == 'J'.
+            public bool HarvesterActive;
+            public string HarvesterStatus;
+            public string HarvesterResourceName;
+            public string HarvesterType;      // "planetary" / "oceanic" / "atmospheric" / "exospheric"
+            public float HarvesterAbundance;
+            public float HarvesterThermalEff;
+            public float HarvesterLoadCapacity;
+
+            // Resource converter — valid only when Kind == 'U'.
+            public bool ConverterActive;
+            public string ConverterName;
+            public string ConverterStatus;
+            public List<GeneratorResourceFrame> ConverterInputs;
+            public List<GeneratorResourceFrame> ConverterOutputs;
+
+            // Control surface — valid only when Kind == 'F'.
+            public bool CtrlIgnorePitch;
+            public bool CtrlIgnoreYaw;
+            public bool CtrlIgnoreRoll;
+            public float CtrlAuthorityLimiter;
+            public bool CtrlDeploy;
+            public bool CtrlDeployInvert;
+            public float CtrlDeployAngle;
+
+            // Alternator — valid only when Kind == 'N'.
+            public float AltOutputRate;
+            public string AltOutputName;
+            public string AltOutputUnits;
+            public bool AltEngineRunning;
         }
 
         private struct GeneratorResourceFrame
@@ -401,6 +548,78 @@ namespace Dragonglass.Telemetry.Topics
                 if (mod is ModuleParachute chute)
                 {
                     dest.Add(BuildParachuteModuleFrame(mod.ClassName, chute));
+                    continue;
+                }
+                if (mod is ModuleCommand cmd)
+                {
+                    dest.Add(BuildCommandModuleFrame(mod.ClassName, cmd));
+                    continue;
+                }
+                if (mod is ModuleReactionWheel rw)
+                {
+                    dest.Add(BuildReactionWheelModuleFrame(mod.ClassName, rw));
+                    continue;
+                }
+                // ModuleRCSFX inherits from ModuleRCS, so this pattern
+                // matches both. Kept as one branch since the wire
+                // payload is identical.
+                if (mod is ModuleRCS rcs)
+                {
+                    dest.Add(BuildRcsModuleFrame(mod.ClassName, rcs));
+                    continue;
+                }
+                // ModuleDecouplerBase is the base of both stack
+                // decouplers (ModuleDecouple) and radial ones
+                // (ModuleAnchoredDecoupler). The `isAnchored` flag on
+                // the wire disambiguates.
+                if (mod is ModuleDecouplerBase dec)
+                {
+                    dest.Add(BuildDecouplerModuleFrame(mod.ClassName, dec));
+                    continue;
+                }
+                if (mod is ModuleDataTransmitter tx)
+                {
+                    dest.Add(BuildDataTransmitterModuleFrame(mod.ClassName, tx));
+                    continue;
+                }
+                if (mod is ModuleDeployableAntenna dantenna)
+                {
+                    dest.Add(BuildDeployableAntennaModuleFrame(mod.ClassName, dantenna));
+                    continue;
+                }
+                if (mod is ModuleDeployableRadiator dradiator)
+                {
+                    dest.Add(BuildDeployableRadiatorModuleFrame(mod.ClassName, dradiator));
+                    continue;
+                }
+                if (mod is ModuleActiveRadiator arad)
+                {
+                    dest.Add(BuildActiveRadiatorModuleFrame(mod.ClassName, arad));
+                    continue;
+                }
+                // ModuleResourceHarvester extends BaseDrill extends
+                // BaseConverter; put it above ModuleResourceConverter
+                // so we resolve to the more specific type first.
+                if (mod is ModuleResourceHarvester harv)
+                {
+                    dest.Add(BuildResourceHarvesterModuleFrame(mod.ClassName, harv));
+                    continue;
+                }
+                if (mod is ModuleResourceConverter conv)
+                {
+                    dest.Add(BuildResourceConverterModuleFrame(mod.ClassName, conv));
+                    continue;
+                }
+                // ModuleControlSurface also catches ModuleAeroSurface
+                // (airbrake) since airbrake inherits control surface.
+                if (mod is ModuleControlSurface ctrl)
+                {
+                    dest.Add(BuildControlSurfaceModuleFrame(mod.ClassName, ctrl));
+                    continue;
+                }
+                if (mod is ModuleAlternator alt)
+                {
+                    dest.Add(BuildAlternatorModuleFrame(mod.ClassName, alt));
                     continue;
                 }
 
@@ -827,6 +1046,373 @@ namespace Dragonglass.Telemetry.Topics
         private static readonly List<EventFrame> EmptyEvents = new List<EventFrame>(0);
         private static readonly List<FieldFrame> EmptyFields = new List<FieldFrame>(0);
 
+        // Command pod: crew accounting + control status derived from
+        // ModuleCommand.ModuleState. Hibernation is player-facing and
+        // round-trips via setField on the hibernate / hibernateOnWarp
+        // KSPFields, which the client writes back through the generic
+        // setField op against this module's index.
+        private ModuleFrame BuildCommandModuleFrame(
+            string moduleName, ModuleCommand cmd)
+        {
+            int crew = _part != null && _part.protoModuleCrew != null
+                ? _part.protoModuleCrew.Count : 0;
+
+            string controlState;
+            if (cmd.hibernation) controlState = "hibernating";
+            else
+            {
+                switch (cmd.ModuleState)
+                {
+                    case ModuleCommand.ModuleControlState.Nominal:
+                        controlState = "nominal"; break;
+                    case ModuleCommand.ModuleControlState.PartialManned:
+                    case ModuleCommand.ModuleControlState.PartialProbe:
+                        controlState = "partial"; break;
+                    case ModuleCommand.ModuleControlState.NoControlPoint:
+                        controlState = "nosignal"; break;
+                    case ModuleCommand.ModuleControlState.NotEnoughCrew:
+                    case ModuleCommand.ModuleControlState.TouristCrew:
+                    case ModuleCommand.ModuleControlState.NotEnoughResources:
+                        controlState = "uncrewed"; break;
+                    default: controlState = "nominal"; break;
+                }
+            }
+
+            return new ModuleFrame
+            {
+                Kind = 'M',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                CmdCrewCount = crew,
+                CmdMinimumCrew = cmd.minimumCrew,
+                CmdControlState = controlState,
+                CmdHibernate = cmd.hibernation,
+                CmdHibernateOnWarp = cmd.hibernateOnWarp,
+            };
+        }
+
+        // Reaction wheel: three-state WheelState, authority slider
+        // (live slider; player adjusts via setField), and the three
+        // torque curves. actuatorModeCycle is a UI_Cycle int that
+        // rotates between Normal / SAS / Pilot — stored raw here.
+        private static ModuleFrame BuildReactionWheelModuleFrame(
+            string moduleName, ModuleReactionWheel rw)
+        {
+            string state;
+            switch (rw.State)
+            {
+                case ModuleReactionWheel.WheelState.Active:   state = "active"; break;
+                case ModuleReactionWheel.WheelState.Disabled: state = "disabled"; break;
+                case ModuleReactionWheel.WheelState.Broken:   state = "broken"; break;
+                default: state = "disabled"; break;
+            }
+            return new ModuleFrame
+            {
+                Kind = 'W',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                RwheelState = state,
+                RwheelAuthority = rw.authorityLimiter,
+                RwheelPitchTorque = rw.PitchTorque,
+                RwheelYawTorque = rw.YawTorque,
+                RwheelRollTorque = rw.RollTorque,
+                RwheelActuatorMode = rw.actuatorModeCycle,
+            };
+        }
+
+        // RCS thruster. Reuses the engine propellant struct since the
+        // shape is identical (name, ratio, crossfeed-available). Isp +
+        // thrustPercentage + thrusterPower mirror the stock readouts.
+        private static ModuleFrame BuildRcsModuleFrame(
+            string moduleName, ModuleRCS rcs)
+        {
+            List<EnginePropellantFrame> props = null;
+            if (rcs.propellants != null && rcs.propellants.Count > 0)
+            {
+                props = new List<EnginePropellantFrame>(rcs.propellants.Count);
+                for (int i = 0; i < rcs.propellants.Count; i++)
+                {
+                    Propellant p = rcs.propellants[i];
+                    if (p == null) continue;
+                    props.Add(new EnginePropellantFrame
+                    {
+                        Name = p.name,
+                        DisplayName = string.IsNullOrEmpty(p.displayName) ? p.name : p.displayName,
+                        Ratio = p.ratio,
+                        CurrentAmount = p.currentAmount,
+                        TotalAvailable = p.actualTotalAvailable,
+                    });
+                }
+            }
+            return new ModuleFrame
+            {
+                Kind = 'T',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                RcsEnabled = rcs.rcsEnabled,
+                RcsThrustLimit = rcs.thrustPercentage,
+                RcsThrusterPower = rcs.thrusterPower,
+                RcsRealIsp = rcs.realISP,
+                RcsPropellants = props ?? EmptyPropellants,
+            };
+        }
+
+        // Decoupler (stack or radial). ModuleDecoupleBase tracks
+        // isDecoupled via the `staged` flag post-firing; using its
+        // Decouple() event is valid while it's still attached.
+        private static ModuleFrame BuildDecouplerModuleFrame(
+            string moduleName, ModuleDecouplerBase dec)
+        {
+            bool isAnchored = dec is ModuleAnchoredDecoupler;
+            return new ModuleFrame
+            {
+                Kind = 'D',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                DecoupleIsDecoupled = dec.isDecoupled,
+                DecoupleIsAnchored = isAnchored,
+                DecoupleEjectionForce = dec.ejectionForce,
+            };
+        }
+
+        // Data transmitter. IsBusy() goes true while a transmission is
+        // in flight; antennaType is an enum (DIRECT / RELAY / INTERNAL).
+        private static ModuleFrame BuildDataTransmitterModuleFrame(
+            string moduleName, ModuleDataTransmitter tx)
+        {
+            string type;
+            switch (tx.antennaType)
+            {
+                case AntennaType.DIRECT:   type = "direct"; break;
+                case AntennaType.RELAY:    type = "relay"; break;
+                case AntennaType.INTERNAL: type = "internal"; break;
+                default:                   type = "direct"; break;
+            }
+            bool busy = false;
+            try { busy = tx.IsBusy(); } catch { }
+            return new ModuleFrame
+            {
+                Kind = 'A',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                AntennaType = type,
+                AntennaPower = tx.antennaPower,
+                AntennaPacketSize = tx.packetSize,
+                AntennaPacketInterval = tx.packetInterval,
+                AntennaBusy = busy,
+            };
+        }
+
+        // Deployable antenna — ModuleDeployableAntenna uses the same
+        // DeployState ladder as solar. We ship it as its own kind so
+        // the UI can render antenna-specific affordances (signal
+        // stinger / phased grid) rather than a sun-icon readout.
+        private static ModuleFrame BuildDeployableAntennaModuleFrame(
+            string moduleName, ModuleDeployableAntenna ant)
+        {
+            return new ModuleFrame
+            {
+                Kind = 'Y',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                DeployAntennaState = DeployStateToWire(ant.deployState),
+                DeployAntennaRetractable = ant.retractable,
+            };
+        }
+
+        // Deployable radiator — ModuleDeployableRadiator shares the
+        // same DeployState machinery. Players mostly care about the
+        // open/closed animation state; heat flux is surfaced by the
+        // sibling ModuleActiveRadiator kind on the same part when
+        // present.
+        private static ModuleFrame BuildDeployableRadiatorModuleFrame(
+            string moduleName, ModuleDeployableRadiator rad)
+        {
+            return new ModuleFrame
+            {
+                Kind = 'Z',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                DeployRadiatorState = DeployStateToWire(rad.deployState),
+                DeployRadiatorRetractable = rad.retractable,
+            };
+        }
+
+        // Active radiator: pumped cooler with an on/off flag, a peak
+        // transfer rate (kW), and stock's short status string
+        // ("Nominal", "Off", "No Core Heat", ...).
+        private static ModuleFrame BuildActiveRadiatorModuleFrame(
+            string moduleName, ModuleActiveRadiator rad)
+        {
+            return new ModuleFrame
+            {
+                Kind = 'K',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                ActiveRadiatorIsCooling = rad.IsCooling,
+                ActiveRadiatorMaxTransfer = rad.maxEnergyTransfer,
+                ActiveRadiatorStatus = rad.status ?? "",
+            };
+        }
+
+        // Resource harvester (drill). HarvesterType is a stock int:
+        // 0 Planetary, 1 Oceanic, 2 Atmospheric, 3 Exospheric. Per-
+        // harvester abundance isn't exposed as a field; sample
+        // AbundanceRequest via ResourceMap if the part has a vessel.
+        // Keeps the wire a single float rather than sampling per
+        // biome row.
+        private static ModuleFrame BuildResourceHarvesterModuleFrame(
+            string moduleName, ModuleResourceHarvester harv)
+        {
+            string harvType;
+            switch (harv.HarvesterType)
+            {
+                case 0: harvType = "planetary"; break;
+                case 1: harvType = "oceanic"; break;
+                case 2: harvType = "atmospheric"; break;
+                case 3: harvType = "exospheric"; break;
+                default: harvType = "planetary"; break;
+            }
+
+            float abundance = 0f;
+            Vessel v = harv.vessel;
+            if (v != null && v.mainBody != null)
+            {
+                try
+                {
+                    AbundanceRequest req = new AbundanceRequest
+                    {
+                        Altitude = v.altitude,
+                        BodyId = v.mainBody.flightGlobalsIndex,
+                        CheckForLock = false,
+                        Latitude = v.latitude,
+                        Longitude = v.longitude,
+                        ResourceType = (HarvestTypes)harv.HarvesterType,
+                        ResourceName = harv.ResourceName,
+                    };
+                    abundance = ResourceMap.Instance.GetAbundance(req);
+                }
+                catch { abundance = 0f; }
+            }
+
+            return new ModuleFrame
+            {
+                Kind = 'J',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                HarvesterActive = harv.IsActivated,
+                HarvesterStatus = harv.status ?? "",
+                HarvesterResourceName = harv.ResourceName ?? "",
+                HarvesterType = harvType,
+                HarvesterAbundance = abundance,
+                HarvesterThermalEff = harv.Efficiency,
+                HarvesterLoadCapacity = harv.EfficiencyBonus,
+            };
+        }
+
+        // Resource converter (ISRU, lab, fuel cell). One module per
+        // mode on stock parts, so each renders as its own PAW row.
+        // inputList/outputList carry [[resourceName, rate], ...].
+        private static ModuleFrame BuildResourceConverterModuleFrame(
+            string moduleName, ModuleResourceConverter conv)
+        {
+            List<GeneratorResourceFrame> ins = RatiosToFrames(conv.inputList);
+            List<GeneratorResourceFrame> outs = RatiosToFrames(conv.outputList);
+            return new ModuleFrame
+            {
+                Kind = 'U',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                ConverterActive = conv.IsActivated,
+                ConverterName = conv.ConverterName ?? "",
+                ConverterStatus = conv.status ?? "",
+                ConverterInputs = ins ?? EmptyGenResources,
+                ConverterOutputs = outs ?? EmptyGenResources,
+            };
+        }
+
+        private static List<GeneratorResourceFrame> RatiosToFrames(List<ResourceRatio> rows)
+        {
+            if (rows == null || rows.Count == 0) return null;
+            List<GeneratorResourceFrame> outl = new List<GeneratorResourceFrame>(rows.Count);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                ResourceRatio r = rows[i];
+                outl.Add(new GeneratorResourceFrame { Name = r.ResourceName, Rate = r.Ratio });
+            }
+            return outl;
+        }
+
+        // Control surface (and its child ModuleAeroSurface / airbrake).
+        // Player-facing axis toggles + authority limit + deploy. Used
+        // to tell a wing from a tail from a brake at a glance.
+        private static ModuleFrame BuildControlSurfaceModuleFrame(
+            string moduleName, ModuleControlSurface ctrl)
+        {
+            return new ModuleFrame
+            {
+                Kind = 'F',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                CtrlIgnorePitch = ctrl.ignorePitch,
+                CtrlIgnoreYaw = ctrl.ignoreYaw,
+                CtrlIgnoreRoll = ctrl.ignoreRoll,
+                CtrlAuthorityLimiter = ctrl.authorityLimiter,
+                CtrlDeploy = ctrl.deploy,
+                CtrlDeployInvert = ctrl.deployInvert,
+                CtrlDeployAngle = float.IsNaN(ctrl.deployAngle) ? 0f : ctrl.deployAngle,
+            };
+        }
+
+        // Alternator: passive EC output scaling with the attached
+        // engine's throttle. We emit the max rate + an engineRunning
+        // flag so the UI can grey the reading when the engine's idle.
+        private static ModuleFrame BuildAlternatorModuleFrame(
+            string moduleName, ModuleAlternator alt)
+        {
+            bool running = false;
+            if (alt.part != null)
+            {
+                PartModuleList mods = alt.part.Modules;
+                if (mods != null)
+                {
+                    for (int i = 0; i < mods.Count; i++)
+                    {
+                        if (mods[i] is ModuleEngines eng
+                            && eng.EngineIgnited
+                            && eng.finalThrust > 0f)
+                        { running = true; break; }
+                    }
+                }
+            }
+            string outputName = alt.outputName ?? "";
+            string outputUnits = alt.outputUnits ?? "";
+            try { outputName = KSP.Localization.Localizer.Format(outputName); } catch { }
+            try { outputUnits = KSP.Localization.Localizer.Format(outputUnits); } catch { }
+            return new ModuleFrame
+            {
+                Kind = 'N',
+                ModuleName = moduleName,
+                Events = EmptyEvents,
+                Fields = EmptyFields,
+                AltOutputRate = alt.outputRate,
+                AltOutputName = outputName,
+                AltOutputUnits = outputUnits,
+                AltEngineRunning = running,
+            };
+        }
+
         // Dispatch a single field into a typed row. `host` is the
         // PartModule that owns the field — BaseField.GetValue wants
         // it to resolve through `FieldInfo.GetValue`.
@@ -955,6 +1541,18 @@ namespace Dragonglass.Telemetry.Topics
                 if (m1.Kind == 'R' && GeneratorExtrasChanged(m1, m2)) return true;
                 if (m1.Kind == 'L' && LightExtrasChanged(m1, m2)) return true;
                 if (m1.Kind == 'C' && ChuteExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'M' && CommandExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'W' && ReactionWheelExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'T' && RcsExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'D' && DecouplerExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'A' && AntennaExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'Y' && DeployAntennaExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'Z' && DeployRadiatorExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'K' && ActiveRadiatorExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'J' && HarvesterExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'U' && ConverterExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'F' && ControlSurfaceExtrasChanged(m1, m2)) return true;
+                if (m1.Kind == 'N' && AlternatorExtrasChanged(m1, m2)) return true;
             }
             return false;
         }
@@ -1028,6 +1626,145 @@ namespace Dragonglass.Telemetry.Topics
             if (a.ChuteSafeState != b.ChuteSafeState) return true;
             if (Mathf.Abs(a.ChuteDeployAltitude - b.ChuteDeployAltitude) > ChuteAltEpsilon) return true;
             if (a.ChuteMinPressure != b.ChuteMinPressure) return true;
+            return false;
+        }
+
+        private const float RwheelTorqueEpsilon = 0.05f;
+        private const float RwheelAuthorityEpsilon = 0.5f;
+        private const float RcsIspEpsilon = 0.5f;
+        private const float RcsThrustEpsilon = 0.5f;
+        private const float DecoupleForceEpsilon = 0.05f;
+        private const double AntennaPowerEpsilon = 0.01;
+        private const double ActiveRadiatorTransferEpsilon = 1.0;
+        private const float HarvesterFracEpsilon = 0.01f;
+        private const float CtrlAuthorityEpsilon = 0.5f;
+        private const float CtrlAngleEpsilon = 0.1f;
+        private const float AlternatorRateEpsilon = 0.005f;
+
+        private static bool CommandExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.CmdCrewCount != b.CmdCrewCount) return true;
+            if (a.CmdMinimumCrew != b.CmdMinimumCrew) return true;
+            if (a.CmdControlState != b.CmdControlState) return true;
+            if (a.CmdHibernate != b.CmdHibernate) return true;
+            if (a.CmdHibernateOnWarp != b.CmdHibernateOnWarp) return true;
+            return false;
+        }
+
+        private static bool ReactionWheelExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.RwheelState != b.RwheelState) return true;
+            if (a.RwheelActuatorMode != b.RwheelActuatorMode) return true;
+            if (Mathf.Abs(a.RwheelAuthority - b.RwheelAuthority) > RwheelAuthorityEpsilon) return true;
+            if (Mathf.Abs(a.RwheelPitchTorque - b.RwheelPitchTorque) > RwheelTorqueEpsilon) return true;
+            if (Mathf.Abs(a.RwheelYawTorque - b.RwheelYawTorque) > RwheelTorqueEpsilon) return true;
+            if (Mathf.Abs(a.RwheelRollTorque - b.RwheelRollTorque) > RwheelTorqueEpsilon) return true;
+            return false;
+        }
+
+        private static bool RcsExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.RcsEnabled != b.RcsEnabled) return true;
+            if (Mathf.Abs(a.RcsThrustLimit - b.RcsThrustLimit) > EngineThrustLimitEpsilon) return true;
+            if (Mathf.Abs(a.RcsThrusterPower - b.RcsThrusterPower) > RcsThrustEpsilon) return true;
+            if (Mathf.Abs(a.RcsRealIsp - b.RcsRealIsp) > RcsIspEpsilon) return true;
+            List<EnginePropellantFrame> pa = a.RcsPropellants;
+            List<EnginePropellantFrame> pb = b.RcsPropellants;
+            int na = pa != null ? pa.Count : 0;
+            int nb = pb != null ? pb.Count : 0;
+            if (na != nb) return true;
+            for (int i = 0; i < na; i++)
+            {
+                EnginePropellantFrame x = pa[i];
+                EnginePropellantFrame y = pb[i];
+                if (x.Name != y.Name) return true;
+                if (x.Ratio != y.Ratio) return true;
+                if (System.Math.Abs(x.CurrentAmount - y.CurrentAmount) > EnginePropellantEpsilon) return true;
+                if (System.Math.Abs(x.TotalAvailable - y.TotalAvailable) > EnginePropellantEpsilon) return true;
+            }
+            return false;
+        }
+
+        private static bool DecouplerExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.DecoupleIsDecoupled != b.DecoupleIsDecoupled) return true;
+            if (a.DecoupleIsAnchored != b.DecoupleIsAnchored) return true;
+            if (Mathf.Abs(a.DecoupleEjectionForce - b.DecoupleEjectionForce) > DecoupleForceEpsilon) return true;
+            return false;
+        }
+
+        private static bool AntennaExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.AntennaType != b.AntennaType) return true;
+            if (a.AntennaBusy != b.AntennaBusy) return true;
+            if (System.Math.Abs(a.AntennaPower - b.AntennaPower) > AntennaPowerEpsilon) return true;
+            if (a.AntennaPacketSize != b.AntennaPacketSize) return true;
+            if (a.AntennaPacketInterval != b.AntennaPacketInterval) return true;
+            return false;
+        }
+
+        private static bool DeployAntennaExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.DeployAntennaState != b.DeployAntennaState) return true;
+            if (a.DeployAntennaRetractable != b.DeployAntennaRetractable) return true;
+            return false;
+        }
+
+        private static bool DeployRadiatorExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.DeployRadiatorState != b.DeployRadiatorState) return true;
+            if (a.DeployRadiatorRetractable != b.DeployRadiatorRetractable) return true;
+            return false;
+        }
+
+        private static bool ActiveRadiatorExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.ActiveRadiatorIsCooling != b.ActiveRadiatorIsCooling) return true;
+            if (a.ActiveRadiatorStatus != b.ActiveRadiatorStatus) return true;
+            if (System.Math.Abs(a.ActiveRadiatorMaxTransfer - b.ActiveRadiatorMaxTransfer) > ActiveRadiatorTransferEpsilon) return true;
+            return false;
+        }
+
+        private static bool HarvesterExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.HarvesterActive != b.HarvesterActive) return true;
+            if (a.HarvesterStatus != b.HarvesterStatus) return true;
+            if (a.HarvesterResourceName != b.HarvesterResourceName) return true;
+            if (a.HarvesterType != b.HarvesterType) return true;
+            if (Mathf.Abs(a.HarvesterAbundance - b.HarvesterAbundance) > HarvesterFracEpsilon) return true;
+            if (Mathf.Abs(a.HarvesterThermalEff - b.HarvesterThermalEff) > HarvesterFracEpsilon) return true;
+            if (Mathf.Abs(a.HarvesterLoadCapacity - b.HarvesterLoadCapacity) > HarvesterFracEpsilon) return true;
+            return false;
+        }
+
+        private static bool ConverterExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.ConverterActive != b.ConverterActive) return true;
+            if (a.ConverterName != b.ConverterName) return true;
+            if (a.ConverterStatus != b.ConverterStatus) return true;
+            if (GenResourcesChanged(a.ConverterInputs, b.ConverterInputs)) return true;
+            if (GenResourcesChanged(a.ConverterOutputs, b.ConverterOutputs)) return true;
+            return false;
+        }
+
+        private static bool ControlSurfaceExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.CtrlIgnorePitch != b.CtrlIgnorePitch) return true;
+            if (a.CtrlIgnoreYaw != b.CtrlIgnoreYaw) return true;
+            if (a.CtrlIgnoreRoll != b.CtrlIgnoreRoll) return true;
+            if (a.CtrlDeploy != b.CtrlDeploy) return true;
+            if (a.CtrlDeployInvert != b.CtrlDeployInvert) return true;
+            if (Mathf.Abs(a.CtrlAuthorityLimiter - b.CtrlAuthorityLimiter) > CtrlAuthorityEpsilon) return true;
+            if (Mathf.Abs(a.CtrlDeployAngle - b.CtrlDeployAngle) > CtrlAngleEpsilon) return true;
+            return false;
+        }
+
+        private static bool AlternatorExtrasChanged(ModuleFrame a, ModuleFrame b)
+        {
+            if (a.AltEngineRunning != b.AltEngineRunning) return true;
+            if (a.AltOutputName != b.AltOutputName) return true;
+            if (a.AltOutputUnits != b.AltOutputUnits) return true;
+            if (Mathf.Abs(a.AltOutputRate - b.AltOutputRate) > AlternatorRateEpsilon) return true;
             return false;
         }
 
@@ -1316,6 +2053,173 @@ namespace Dragonglass.Telemetry.Topics
                     Json.WriteFloat(sb, m.ChuteDeployAltitude);
                     sb.Append(',');
                     Json.WriteFloat(sb, m.ChuteMinPressure);
+                    break;
+
+                case 'M':
+                    sb.Append(',');
+                    Json.WriteLong(sb, m.CmdCrewCount);
+                    sb.Append(',');
+                    Json.WriteLong(sb, m.CmdMinimumCrew);
+                    sb.Append(',');
+                    Json.WriteString(sb, m.CmdControlState ?? "nominal");
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.CmdHibernate);
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.CmdHibernateOnWarp);
+                    break;
+
+                case 'W':
+                    sb.Append(',');
+                    Json.WriteString(sb, m.RwheelState ?? "disabled");
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.RwheelAuthority);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.RwheelPitchTorque);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.RwheelYawTorque);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.RwheelRollTorque);
+                    sb.Append(',');
+                    Json.WriteLong(sb, m.RwheelActuatorMode);
+                    break;
+
+                case 'T':
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.RcsEnabled);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.RcsThrustLimit);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.RcsThrusterPower);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.RcsRealIsp);
+                    sb.Append(',');
+                    sb.Append('[');
+                    {
+                        List<EnginePropellantFrame> rprops = m.RcsPropellants;
+                        if (rprops != null)
+                        {
+                            for (int i = 0; i < rprops.Count; i++)
+                            {
+                                if (i > 0) sb.Append(',');
+                                EnginePropellantFrame p = rprops[i];
+                                sb.Append('[');
+                                Json.WriteString(sb, p.Name ?? "");
+                                sb.Append(',');
+                                Json.WriteString(sb, p.DisplayName ?? "");
+                                sb.Append(',');
+                                Json.WriteFloat(sb, p.Ratio);
+                                sb.Append(',');
+                                Json.WriteDouble(sb, p.CurrentAmount);
+                                sb.Append(',');
+                                Json.WriteDouble(sb, p.TotalAvailable);
+                                sb.Append(']');
+                            }
+                        }
+                    }
+                    sb.Append(']');
+                    break;
+
+                case 'D':
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.DecoupleIsDecoupled);
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.DecoupleIsAnchored);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.DecoupleEjectionForce);
+                    break;
+
+                case 'A':
+                    sb.Append(',');
+                    Json.WriteString(sb, m.AntennaType ?? "direct");
+                    sb.Append(',');
+                    Json.WriteDouble(sb, m.AntennaPower);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.AntennaPacketSize);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.AntennaPacketInterval);
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.AntennaBusy);
+                    break;
+
+                case 'Y':
+                    sb.Append(',');
+                    Json.WriteString(sb, m.DeployAntennaState ?? "retracted");
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.DeployAntennaRetractable);
+                    break;
+
+                case 'Z':
+                    sb.Append(',');
+                    Json.WriteString(sb, m.DeployRadiatorState ?? "retracted");
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.DeployRadiatorRetractable);
+                    break;
+
+                case 'K':
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.ActiveRadiatorIsCooling);
+                    sb.Append(',');
+                    Json.WriteDouble(sb, m.ActiveRadiatorMaxTransfer);
+                    sb.Append(',');
+                    Json.WriteString(sb, m.ActiveRadiatorStatus ?? "");
+                    break;
+
+                case 'J':
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.HarvesterActive);
+                    sb.Append(',');
+                    Json.WriteString(sb, m.HarvesterStatus ?? "");
+                    sb.Append(',');
+                    Json.WriteString(sb, m.HarvesterResourceName ?? "");
+                    sb.Append(',');
+                    Json.WriteString(sb, m.HarvesterType ?? "planetary");
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.HarvesterAbundance);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.HarvesterThermalEff);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.HarvesterLoadCapacity);
+                    break;
+
+                case 'U':
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.ConverterActive);
+                    sb.Append(',');
+                    Json.WriteString(sb, m.ConverterName ?? "");
+                    sb.Append(',');
+                    Json.WriteString(sb, m.ConverterStatus ?? "");
+                    sb.Append(',');
+                    WriteGeneratorResources(sb, m.ConverterInputs);
+                    sb.Append(',');
+                    WriteGeneratorResources(sb, m.ConverterOutputs);
+                    break;
+
+                case 'F':
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.CtrlIgnorePitch);
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.CtrlIgnoreYaw);
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.CtrlIgnoreRoll);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.CtrlAuthorityLimiter);
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.CtrlDeploy);
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.CtrlDeployInvert);
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.CtrlDeployAngle);
+                    break;
+
+                case 'N':
+                    sb.Append(',');
+                    Json.WriteFloat(sb, m.AltOutputRate);
+                    sb.Append(',');
+                    Json.WriteString(sb, m.AltOutputName ?? "");
+                    sb.Append(',');
+                    Json.WriteString(sb, m.AltOutputUnits ?? "");
+                    sb.Append(',');
+                    Json.WriteBool(sb, m.AltEngineRunning);
                     break;
 
                 case 'G':

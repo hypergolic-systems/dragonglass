@@ -362,6 +362,220 @@ export interface PartModuleParachute extends PartModuleBase {
   readonly minPressure: number;
 }
 
+/**
+ * Typed shape for `ModuleCommand` — command pods + probe cores. Carries
+ * crew accounting, the derived control status, and the two hibernation
+ * toggles stock exposes in flight.
+ *
+ * Renderer actions via `invokeEvent`: `'MakeReference'`
+ * (Control From Here), `'RenameVessel'`. Hibernation flips write back
+ * through `setField` on `hibernate` / `hibernateOnWarp`.
+ */
+export type CommandControlState =
+  | 'nominal'
+  | 'partial'
+  | 'uncrewed'
+  | 'hibernating'
+  | 'nosignal';
+
+export interface PartModuleCommand extends PartModuleBase {
+  readonly kind: 'command';
+  readonly crewCount: number;
+  readonly minimumCrew: number;
+  readonly controlState: CommandControlState;
+  readonly hibernate: boolean;
+  readonly hibernateOnWarp: boolean;
+}
+
+/**
+ * Typed shape for `ModuleReactionWheel`. `state` follows KSP's
+ * `WheelState` enum; `actuatorMode` is the UI_Cycle int (0 Normal,
+ * 1 SAS-only, 2 Pilot-only). Authority is a 0..100 float the player
+ * can retune.
+ *
+ * Renderer actions: `invokeEvent(moduleIndex, 'OnToggle')`;
+ * `setField(moduleIndex, 'authorityLimiter', 0..100)`;
+ * `setField(moduleIndex, 'actuatorModeCycle', 0|1|2)`.
+ */
+export type ReactionWheelState = 'active' | 'disabled' | 'broken';
+
+export interface PartModuleReactionWheel extends PartModuleBase {
+  readonly kind: 'reactionWheel';
+  readonly state: ReactionWheelState;
+  readonly authorityLimiter: number;
+  readonly pitchTorque: number;
+  readonly yawTorque: number;
+  readonly rollTorque: number;
+  readonly actuatorMode: number;
+}
+
+/**
+ * Typed shape for `ModuleRCS` (and `ModuleRCSFX` which inherits from
+ * it). Shape mirrors the engine renderer's propellant table because
+ * the stock class literally reuses `Propellant`.
+ *
+ * Renderer actions: `setField(moduleIndex, 'rcsEnabled', bool)`,
+ * `setField(moduleIndex, 'thrustPercentage', 0..100)`.
+ */
+export interface PartModuleRcs extends PartModuleBase {
+  readonly kind: 'rcs';
+  readonly enabled: boolean;
+  readonly thrustLimit: number;
+  readonly thrusterPower: number;
+  readonly realIsp: number;
+  readonly propellants: readonly PartEnginePropellant[];
+}
+
+/**
+ * Typed shape for `ModuleDecouple` (stack separators) and
+ * `ModuleAnchoredDecoupler` (radial separators). `isAnchored`
+ * distinguishes the two on the wire.
+ *
+ * Renderer action: `invokeEvent(moduleIndex, 'Decouple')`.
+ * The button is disabled client-side once `isDecoupled` is true,
+ * and the server double-checks the KSPEvent's live `guiActive` flag.
+ */
+export interface PartModuleDecoupler extends PartModuleBase {
+  readonly kind: 'decoupler';
+  readonly isDecoupled: boolean;
+  readonly isAnchored: boolean;
+  readonly ejectionForce: number;
+}
+
+/**
+ * Typed shape for `ModuleDataTransmitter` — the antenna data-uplink
+ * module. `antennaType` mirrors stock's `AntennaType` enum; `busy` is
+ * true while a transmission is in flight (IsBusy() on the server).
+ *
+ * Renderer actions: `invokeEvent(moduleIndex, 'StartTransmission')` /
+ * `'StopTransmission'`.
+ */
+export type AntennaType = 'direct' | 'relay' | 'internal';
+
+export interface PartModuleDataTransmitter extends PartModuleBase {
+  readonly kind: 'transmitter';
+  readonly antennaType: AntennaType;
+  /** Stock's internal `antennaPower` (Mm range at 1 kW comm tier). */
+  readonly antennaPower: number;
+  readonly packetSize: number;
+  readonly packetInterval: number;
+  readonly busy: boolean;
+}
+
+/**
+ * Typed shape for `ModuleDeployableAntenna`. Shares the 5-state
+ * DeployState enum with solar panels and deployable radiators; the
+ * kind differs so the bespoke renderer can paint antenna-flavoured
+ * chrome.
+ *
+ * Renderer actions via `invokeEvent`: `'Extend'` / `'Retract'`.
+ */
+export interface PartModuleDeployableAntenna extends PartModuleBase {
+  readonly kind: 'deployAntenna';
+  readonly state: SolarPanelState;
+  readonly retractable: boolean;
+}
+
+/**
+ * Typed shape for `ModuleDeployableRadiator`. Same DeployState
+ * machinery; we show it alongside any sibling `ModuleActiveRadiator`
+ * on the same part.
+ *
+ * Renderer actions via `invokeEvent`: `'Extend'` / `'Retract'`.
+ */
+export interface PartModuleDeployableRadiator extends PartModuleBase {
+  readonly kind: 'deployRadiator';
+  readonly state: SolarPanelState;
+  readonly retractable: boolean;
+}
+
+/**
+ * Typed shape for `ModuleActiveRadiator`. Carries the on/off flag,
+ * the peak heat transfer rate, and stock's short status string.
+ *
+ * Renderer actions: `invokeEvent(moduleIndex, 'Activate')` /
+ * `'Shutdown'`.
+ */
+export interface PartModuleActiveRadiator extends PartModuleBase {
+  readonly kind: 'activeRadiator';
+  readonly isCooling: boolean;
+  /** Peak transfer rate in kW (`maxEnergyTransfer`). */
+  readonly maxTransfer: number;
+  readonly status: string;
+}
+
+/**
+ * Typed shape for `ModuleResourceHarvester` (drills). `harvesterType`
+ * corresponds to KSP's `HarvestTypes` enum. `abundance` is the
+ * resource fraction at the drill site.
+ *
+ * Renderer actions: `invokeEvent(moduleIndex, 'StartResourceConverter')`
+ * / `'StopResourceConverter'`.
+ */
+export type HarvesterType = 'planetary' | 'oceanic' | 'atmospheric' | 'exospheric';
+
+export interface PartModuleResourceHarvester extends PartModuleBase {
+  readonly kind: 'harvester';
+  readonly active: boolean;
+  readonly status: string;
+  readonly resourceName: string;
+  readonly harvesterType: HarvesterType;
+  readonly abundance: number;
+  readonly thermalEfficiency: number;
+  readonly loadCapacity: number;
+}
+
+/**
+ * Typed shape for `ModuleResourceConverter`. A stock ISRU exposes one
+ * such module per mode (LF, Ox, MP, LF+Ox), so the PAW shows each
+ * separately. `inputs` / `outputs` mirror the `ResourceRatio` pairs
+ * in the recipe.
+ *
+ * Renderer actions: `invokeEvent(moduleIndex, 'StartResourceConverter')`
+ * / `'StopResourceConverter'`.
+ */
+export interface PartModuleResourceConverter extends PartModuleBase {
+  readonly kind: 'converter';
+  readonly active: boolean;
+  readonly converterName: string;
+  readonly status: string;
+  readonly inputs: readonly GeneratorResourceFlow[];
+  readonly outputs: readonly GeneratorResourceFlow[];
+}
+
+/**
+ * Typed shape for `ModuleControlSurface` — aerodynamic control
+ * surfaces and airbrakes (stock airbrake extends this class). All
+ * fields are round-trippable via `setField`.
+ */
+export interface PartModuleControlSurface extends PartModuleBase {
+  readonly kind: 'controlSurface';
+  readonly ignorePitch: boolean;
+  readonly ignoreYaw: boolean;
+  readonly ignoreRoll: boolean;
+  readonly authorityLimiter: number;
+  readonly deploy: boolean;
+  readonly deployInvert: boolean;
+  readonly deployAngle: number;
+}
+
+/**
+ * Typed shape for `ModuleAlternator`. Alternators piggy-back on an
+ * engine's throttle and produce a resource (typically EC) while the
+ * engine is firing. Passive — no client actions.
+ */
+export interface PartModuleAlternator extends PartModuleBase {
+  readonly kind: 'alternator';
+  /** Maximum output rate in `outputUnits` per second. */
+  readonly outputRate: number;
+  /** Localized resource display name. */
+  readonly outputName: string;
+  /** Localized unit suffix ("Ec/s"). */
+  readonly outputUnits: string;
+  /** True when the attached engine is producing thrust. */
+  readonly engineRunning: boolean;
+}
+
 export type PartModuleData =
   | PartModuleGeneric
   | PartModuleEngines
@@ -370,7 +584,19 @@ export type PartModuleData =
   | PartModuleSolarPanel
   | PartModuleGenerator
   | PartModuleLight
-  | PartModuleParachute;
+  | PartModuleParachute
+  | PartModuleCommand
+  | PartModuleReactionWheel
+  | PartModuleRcs
+  | PartModuleDecoupler
+  | PartModuleDataTransmitter
+  | PartModuleDeployableAntenna
+  | PartModuleDeployableRadiator
+  | PartModuleActiveRadiator
+  | PartModuleResourceHarvester
+  | PartModuleResourceConverter
+  | PartModuleControlSurface
+  | PartModuleAlternator;
 
 export interface PartData {
   readonly persistentId: string;

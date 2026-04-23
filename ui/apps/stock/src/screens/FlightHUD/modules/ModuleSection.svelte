@@ -23,6 +23,18 @@
   import GeneratorModule from './GeneratorModule.svelte';
   import LightModule from './LightModule.svelte';
   import ParachuteModule from './ParachuteModule.svelte';
+  import CommandModule from './CommandModule.svelte';
+  import ReactionWheelModule from './ReactionWheelModule.svelte';
+  import RcsModule from './RcsModule.svelte';
+  import DecouplerModule from './DecouplerModule.svelte';
+  import DataTransmitterModule from './DataTransmitterModule.svelte';
+  import DeployableAntennaModule from './DeployableAntennaModule.svelte';
+  import DeployableRadiatorModule from './DeployableRadiatorModule.svelte';
+  import ActiveRadiatorModule from './ActiveRadiatorModule.svelte';
+  import ResourceHarvesterModule from './ResourceHarvesterModule.svelte';
+  import ResourceConverterModule from './ResourceConverterModule.svelte';
+  import ControlSurfaceModule from './ControlSurfaceModule.svelte';
+  import AlternatorModule from './AlternatorModule.svelte';
   import type { ModuleRendererProps } from './types';
 
   const { module, onInvokeEvent, onSetField }: ModuleRendererProps = $props();
@@ -35,6 +47,18 @@
     generator: GeneratorModule,
     light: LightModule,
     parachute: ParachuteModule,
+    command: CommandModule,
+    reactionWheel: ReactionWheelModule,
+    rcs: RcsModule,
+    decoupler: DecouplerModule,
+    transmitter: DataTransmitterModule,
+    deployAntenna: DeployableAntennaModule,
+    deployRadiator: DeployableRadiatorModule,
+    activeRadiator: ActiveRadiatorModule,
+    harvester: ResourceHarvesterModule,
+    converter: ResourceConverterModule,
+    controlSurface: ControlSurfaceModule,
+    alternator: AlternatorModule,
   };
 
   const Renderer = $derived(RENDERERS[module.kind] ?? DefaultModule);
