@@ -72,6 +72,13 @@ namespace Dragonglass.Telemetry
             // Topics self-register via their OnEnable hook.
             gameObject.AddComponent<GameTopic>();
             gameObject.AddComponent<ClockTopic>();
+            // PartSubscriptionManager is scene-agnostic — it listens
+            // for subscribe/unsubscribe signals and attaches PartTopic
+            // components to Parts themselves. Outside Flight,
+            // FlightGlobals.PersistentLoadedPartIds is empty, so its
+            // handlers silently drop requests. See
+            // Topics/PartSubscriptionManager.cs.
+            gameObject.AddComponent<PartSubscriptionManager>();
         }
 
         private void Update()

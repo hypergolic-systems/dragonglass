@@ -62,33 +62,44 @@ export function usePartActionWindows(): PartActionWindowOps {
   let zCounter = 1;
 
   const unsubscribePaw = telemetry.subscribe(PawTopic, (ev) => {
+    if (!ev.persistentId) return;  // empty pulse — defensive, shouldn't happen on the wire
     const existing = windows.find((w) => w.persistentId === ev.persistentId);
     if (existing) {
       existing.z = ++zCounter;
       return;
     }
-    const paw: InternalPaw = {
-      persistentId: ev.persistentId,
+    const persistentId = ev.persistentId;
+    // Subscribing to PartTopic(id) is what tells the transport (and
+    // thus the server) to spin up the per-part feed. No explicit
+    // handshake — the subscribe-on-the-wire signal is driven by the
+    // 0 → 1 transition of the callback set, see DragonglassTelemetry.
+    const seed: InternalPaw = {
+      persistentId,
       data: null,
       pin: null,
       z: ++zCounter,
       unsubscribe: () => {},
     };
-    paw.unsubscribe = telemetry.subscribe(PartTopic(ev.persistentId), (frame) => {
-      // Detached copy so mutating `available` / positions on the
-      // scratch frame doesn't trample Svelte's reactive proxy.
-      paw.data = {
+    // Re-lookup via `windows.find` inside the frame callback so the
+    // mutation goes through Svelte's reactive proxy — writing to the
+    // captured `seed` reference directly would bypass the proxy and
+    // the template would never re-render.
+    seed.unsubscribe = telemetry.subscribe(PartTopic(persistentId), (frame) => {
+      const w = windows.find((x) => x.persistentId === persistentId);
+      if (!w) return;
+      w.data = {
         persistentId: frame.persistentId,
         name: frame.name,
         screen: frame.screen,
         resources: frame.resources,
       };
     });
-    windows.push(paw);
+    windows.push(seed);
   });
 
   onDestroy(() => {
     unsubscribePaw();
+    // Each PartTopic unsubscribe triggers the transport's 1 → 0 signal.
     for (const w of windows) w.unsubscribe();
     windows.length = 0;
   });

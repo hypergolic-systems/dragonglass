@@ -14,6 +14,16 @@
 // already been dispatched gets the most recent cached frame
 // immediately, so components that mount late don't stare at their
 // defaults until the next server push.
+//
+// Subscription signalling: when a topic's callback set transitions
+// from empty → non-empty, the transport fires a reserved
+// `{"op":"subscribe","topic":"<name>"}` envelope on the wire; the
+// reverse transition fires `"unsubscribe"`. The server opts into this
+// signal only for parametrized topics (today, `part/*`) — always-on
+// topics (`flight`, `engines`, `stage`, ...) treat it as a harmless
+// no-op. After a reconnect the transport replays every current
+// subscription so the server re-spins any parametrized feeds we care
+// about.
 
 import type { Ksp, Topic, OpArgs } from '../core/ksp';
 import {
@@ -22,7 +32,11 @@ import {
   decodeFlight,
   decodeEngines,
   decodeStage,
+  decodePaw,
+  decodePart,
 } from './decoders';
+
+const PART_TOPIC_PREFIX = 'part/';
 
 const RECONNECT_DELAY_MS = 1000;
 
@@ -38,6 +52,7 @@ export class DragonglassTelemetry implements Ksp {
     flight: decodeFlight,
     engines: decodeEngines,
     stage: decodeStage,
+    paw: decodePaw,
   };
   private readonly lastByTopic = new Map<string, unknown>();
 
@@ -54,11 +69,17 @@ export class DragonglassTelemetry implements Ksp {
 
   subscribe<T, Ops>(topic: Topic<T, Ops>, cb: (frame: T) => void): () => void {
     let set = this.subs.get(topic.name);
+    const firstSubscriber = !set;
     if (!set) {
       set = new Set();
       this.subs.set(topic.name, set);
     }
     set.add(cb as Callback);
+
+    // Transition empty → non-empty: signal the server. Only flies if
+    // the socket is currently open; otherwise the reconnect path
+    // replays every active subscription on the next onopen.
+    if (firstSubscriber) this.sendSubscribe(topic.name);
 
     // If we've already received a frame for this topic, fire it
     // immediately so late-mounting consumers don't lag a tick behind.
@@ -69,7 +90,11 @@ export class DragonglassTelemetry implements Ksp {
       const bucket = this.subs.get(topic.name);
       if (!bucket) return;
       bucket.delete(cb as Callback);
-      if (bucket.size === 0) this.subs.delete(topic.name);
+      if (bucket.size === 0) {
+        this.subs.delete(topic.name);
+        // Transition non-empty → empty: release the server-side feed.
+        this.sendUnsubscribe(topic.name);
+      }
     };
   }
 
@@ -78,6 +103,19 @@ export class DragonglassTelemetry implements Ksp {
     op: K,
     ...args: OpArgs<Ops, K>
   ): void {
+    // Reserve `subscribe` / `unsubscribe` for the transport — app-
+    // level ops shouldn't be able to smuggle through with these names
+    // and confuse the server's subscription dispatcher. In practice
+    // no Topic types declare these methods, so this warns on a
+    // genuine programmer mistake rather than a routine miss.
+    if (op === 'subscribe' || op === 'unsubscribe') {
+      console.warn(
+        '[dragonglass] rejecting reserved op "' + op + '" on topic "' +
+        topic.name + '" — these are transport-level signals driven by ' +
+        'subscribe()/unsubscribe() on Ksp.subscribe.',
+      );
+      return;
+    }
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     // Fire-and-forget. No queueing across reconnects — the next user
@@ -86,6 +124,24 @@ export class DragonglassTelemetry implements Ksp {
       ws.send(JSON.stringify({ topic: topic.name, op, args }));
     } catch (err) {
       console.warn('[dragonglass] send failed:', err);
+    }
+  }
+
+  private sendSubscribe(name: string): void {
+    this.sendSubscriptionSignal('subscribe', name);
+  }
+
+  private sendUnsubscribe(name: string): void {
+    this.sendSubscriptionSignal('unsubscribe', name);
+  }
+
+  private sendSubscriptionSignal(op: 'subscribe' | 'unsubscribe', name: string): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(JSON.stringify({ op, topic: name }));
+    } catch (err) {
+      console.warn('[dragonglass] ' + op + ' send failed:', err);
     }
   }
 
@@ -134,6 +190,12 @@ export class DragonglassTelemetry implements Ksp {
         this.connectResolve();
         this.connectResolve = null;
       }
+      // Replay every active subscription so the server re-spins any
+      // parametrized feeds (part/*) we care about. Always-on topics
+      // treat re-subscribe as a no-op; cheap to repeat.
+      for (const name of this.subs.keys()) {
+        this.sendSubscriptionSignal('subscribe', name);
+      }
     };
 
     ws.onmessage = (ev) => this.handleMessage(ev);
@@ -171,7 +233,12 @@ export class DragonglassTelemetry implements Ksp {
     const topic = parsed.topic;
     if (typeof topic !== 'string') return;
 
-    const decode = this.decoders[topic];
+    // Parametrized topics (today: `part/<id>`) route by prefix so one
+    // decoder serves every instance; fixed-name topics look up by the
+    // exact key.
+    const decode = topic.startsWith(PART_TOPIC_PREFIX)
+      ? decodePart
+      : this.decoders[topic];
     if (!decode) return;  // Unknown topic: forward-compat, drop silently.
 
     const frame = decode(parsed.data);

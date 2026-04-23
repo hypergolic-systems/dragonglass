@@ -35,6 +35,18 @@ namespace Dragonglass.Telemetry.Topics
         public bool IsDirty { get; private set; }
 
         /// <summary>
+        /// True for one-shot event topics whose payload is a pulse,
+        /// not a state snapshot. The broadcaster still flushes these
+        /// on dirty, but does NOT cache the frame for replay to new
+        /// clients — otherwise a reconnecting client would receive
+        /// the last event as "current state" and, e.g., re-open a
+        /// PAW that the pilot right-clicked minutes ago. Default is
+        /// false; only override when the topic's semantics really
+        /// are event-driven rather than state-driven.
+        /// </summary>
+        public virtual bool IsEvent { get { return false; } }
+
+        /// <summary>
         /// Write the topic's current state as a JSON object into
         /// <paramref name="sb"/>. Produces e.g. <c>{"scene":"FLIGHT",...}</c>.
         /// The broadcaster wraps this in the full envelope.

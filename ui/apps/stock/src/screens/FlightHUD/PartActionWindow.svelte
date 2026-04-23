@@ -19,6 +19,7 @@
   // its part through vessel motion without losing the pilot's chosen
   // layout.
 
+  import { onDestroy } from 'svelte';
   import type { PartActionWindow } from '@dragonglass/telemetry/svelte';
   import type { PartResourceData } from '@dragonglass/telemetry/core';
 
@@ -61,16 +62,18 @@
     live ?? frozen ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 },
   );
 
-  // Drag lifecycle. PointerDown on the header captures the pointer
-  // and starts tracking delta until release. The `raise` ping on
-  // down makes this PAW render above its siblings during the drag.
+  // Drag lifecycle. PointerDown on the header attaches document-level
+  // pointermove / pointerup listeners that outlive the header's own
+  // event handling. Matches StagingStack's stage-drag pattern —
+  // `setPointerCapture` was the alternative but it proved unreliable
+  // inside CEF's OSR renderer, so the explicit document listeners
+  // are used consistently across the HUD.
   let dragging = $state(false);
   let dragStart: { pointerX: number; pointerY: number; pinX: number; pinY: number } | null = null;
 
   function onHeaderPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return;
     onRaise();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     dragging = true;
     dragStart = {
       pointerX: e.clientX,
@@ -78,21 +81,31 @@
       pinX: offset.dx,
       pinY: offset.dy,
     };
+    document.addEventListener('pointermove', onDocumentPointerMove);
+    document.addEventListener('pointerup', onDocumentPointerUp);
+    document.addEventListener('pointercancel', onDocumentPointerUp);
   }
 
-  function onHeaderPointerMove(e: PointerEvent): void {
+  function onDocumentPointerMove(e: PointerEvent): void {
     if (!dragging || !dragStart) return;
     const dx = dragStart.pinX + (e.clientX - dragStart.pointerX);
     const dy = dragStart.pinY + (e.clientY - dragStart.pointerY);
     onPin({ dx, dy });
   }
 
-  function onHeaderPointerUp(e: PointerEvent): void {
+  function onDocumentPointerUp(): void {
     if (!dragging) return;
     dragging = false;
     dragStart = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    document.removeEventListener('pointermove', onDocumentPointerMove);
+    document.removeEventListener('pointerup', onDocumentPointerUp);
+    document.removeEventListener('pointercancel', onDocumentPointerUp);
   }
+
+  // Defensive cleanup if the PAW unmounts mid-drag (e.g. close click
+  // lands while a drag is in flight). The document listeners would
+  // otherwise keep firing against a stale onPin reference.
+  onDestroy(onDocumentPointerUp);
 
   // Resource-level format helpers. Percent + dual readout both use
   // the same capacity as the denominator, so nothing here depends on
@@ -238,9 +251,6 @@
     role="toolbar"
     tabindex="-1"
     onpointerdown={onHeaderPointerDown}
-    onpointermove={onHeaderPointerMove}
-    onpointerup={onHeaderPointerUp}
-    onpointercancel={onHeaderPointerUp}
   >
     <h2 class="paw__title">{paw.data?.name ?? '—'}</h2>
     <button

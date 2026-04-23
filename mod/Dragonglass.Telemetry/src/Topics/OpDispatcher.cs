@@ -58,6 +58,22 @@ namespace Dragonglass.Telemetry.Topics
         {
             while (_queue.TryDequeue(out Envelope env))
             {
+                // Transport-level reserved ops. `subscribe` /
+                // `unsubscribe` aren't routed to any Topic — they're
+                // signals driven by the client's first-subscriber /
+                // last-subscriber transitions on the named topic, so
+                // fan them out through SubscriptionBus for dedicated
+                // listeners (PartSubscriptionManager, etc.) to handle.
+                if (env.Op == "subscribe")
+                {
+                    SubscriptionBus.RaiseSubscribe(env.Topic);
+                    continue;
+                }
+                if (env.Op == "unsubscribe")
+                {
+                    SubscriptionBus.RaiseUnsubscribe(env.Topic);
+                    continue;
+                }
                 Topic topic = _registry.GetByName(env.Topic);
                 if (topic == null)
                 {

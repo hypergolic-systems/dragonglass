@@ -54,7 +54,11 @@ namespace Dragonglass.Telemetry.Topics
                 if (!topic.IsDirty) continue;
 
                 string frame = BuildFrame(topic);
-                _lastByTopic[topic.Name] = frame;
+                // Event topics (e.g. PawTopic) are pulses, not state.
+                // Replaying a cached pulse to a newly-connecting client
+                // would double-fire the event minutes after the fact,
+                // so skip the cache for them. See Topic.IsEvent.
+                if (!topic.IsEvent) _lastByTopic[topic.Name] = frame;
                 _server.Broadcast(frame);
                 topic.ClearDirty();
             }

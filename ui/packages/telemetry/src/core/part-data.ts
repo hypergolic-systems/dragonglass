@@ -49,6 +49,13 @@ export interface PartData {
  * PAW open event. No stable value — each dispatch is a pulse telling
  * the UI to open a window for `persistentId`. Handlers dedupe against
  * their current open-set; re-right-clicking an open part is a no-op.
+ *
+ * No ops: the "which parts are we watching" question is answered by
+ * subscribing to `PartTopic(id)`. The transport layer translates
+ * first-subscriber / last-unsubscriber transitions into reserved
+ * `subscribe` / `unsubscribe` signals on the wire, so the server
+ * spins up or tears down the matching per-part feed without any
+ * app-level handshake here.
  */
 export interface PawEvent {
   readonly persistentId: string;

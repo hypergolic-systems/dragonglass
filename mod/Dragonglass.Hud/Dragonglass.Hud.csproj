@@ -84,4 +84,13 @@
                       PrivateAssets="all" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The PAW Harmony patch raises Dragonglass.Telemetry's PawBus.
+         Private=False so the Telemetry DLL isn't republished into
+         this project's build output — it's shipped separately. -->
+    <ProjectReference Include="..\Dragonglass.Telemetry\Dragonglass.Telemetry.csproj">
+      <Private>False</Private>
+    </ProjectReference>
+  </ItemGroup>
+
 </Project>

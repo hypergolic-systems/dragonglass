@@ -32,6 +32,11 @@ import type {
   StagingPart,
   StagingPartKind,
 } from '../core/stage-data';
+import type {
+  PartData,
+  PartResourceData,
+  PawEvent,
+} from '../core/part-data';
 
 type ClockWire = [number, number | null];
 type GameWire = [string, string | null, number];
@@ -305,4 +310,88 @@ export function decodeStage(raw: unknown): StageData {
   }
   stageScratch.stages = out;
   return stageScratch as StageData;
+}
+
+// PAW topic. Wire:
+//   [persistentId]
+//     persistentId : decimal-string KSP Part.persistentId, or absent
+//                    when the pulse carries no id (defensive — server
+//                    currently always provides one).
+//
+// Event-only: the broadcaster skips snapshot caching for this topic,
+// so each dispatch is a fresh pulse. The UI rune treats it as "open
+// a PAW for this id" and dedupes against its current open-set.
+type PawWire = [string?];
+
+const pawScratch: { persistentId: string } = { persistentId: '' };
+
+export function decodePaw(raw: unknown): PawEvent {
+  const a = raw as PawWire;
+  pawScratch.persistentId = a[0] ?? '';
+  return pawScratch as PawEvent;
+}
+
+// PartTopic(id). Wire:
+//   [persistentId, name, [screenX, screenY, visible],
+//    [[resourceName, abbr, available, capacity], ...]]
+//
+// Screen coordinates come off the wire in **Unity physical pixels**
+// — WorldToScreenPoint on KSP's camera returns backing-buffer
+// coords, and CEF's viewport is resized to match Screen.width /
+// Screen.height. On a Retina display those are 2× CSS pixels, so we
+// divide by devicePixelRatio here to give the UI consumers a
+// coordinate system that matches `window.innerWidth` / CSS layout.
+// Mirrors the dg-sidecar's own `dip_x = evt.x / device_scale`
+// correction for incoming mouse events (see crates/dg-sidecar/src/
+// main.rs :: inject_input_event).
+//
+// The UI freezes the PAW at the last-known position when `visible`
+// is false (part behind camera).
+type PartResourceWire = [string, string, number, number];
+type PartWire = [
+  string,                                          // persistentId
+  string,                                          // name
+  [number, number, boolean],                       // screen: [x, y, visible]
+  PartResourceWire[],                              // resources
+];
+
+interface PartMutable {
+  persistentId: string;
+  name: string;
+  screen: { x: number; y: number; visible: boolean } | null;
+  resources: readonly PartResourceData[];
+}
+
+// Fresh per-decode rather than a module-scoped scratch: multiple open
+// PAWs share this decoder, and a per-decoder scratch would let the
+// last-decoded frame's fields leak into an earlier PAW's store on
+// reentrant dispatch. The allocation is cheap at 10 Hz × N open
+// PAWs (N is ≤ ~8 in realistic use).
+export function decodePart(raw: unknown): PartData {
+  const a = raw as PartWire;
+  const screenRaw = a[2];
+  const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0
+    ? window.devicePixelRatio
+    : 1;
+  const screen = screenRaw !== undefined && screenRaw !== null
+    ? { x: screenRaw[0] / dpr, y: screenRaw[1] / dpr, visible: screenRaw[2] }
+    : null;
+  const resourcesRaw = a[3] ?? [];
+  const resources = new Array<PartResourceData>(resourcesRaw.length);
+  for (let i = 0; i < resourcesRaw.length; i++) {
+    const r = resourcesRaw[i];
+    resources[i] = {
+      name: r[0],
+      abbr: r[1],
+      available: r[2],
+      capacity: r[3],
+    };
+  }
+  const frame: PartMutable = {
+    persistentId: a[0],
+    name: a[1],
+    screen,
+    resources,
+  };
+  return frame as PartData;
 }
