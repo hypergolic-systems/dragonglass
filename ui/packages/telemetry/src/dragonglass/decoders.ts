@@ -35,6 +35,25 @@ import type {
 import type {
   PartData,
   PartResourceData,
+  PartEventData,
+  PartFieldData,
+  PartModuleData,
+  PartModuleGeneric,
+  PartModuleEngines,
+  PartEnginePropellant,
+  PartEngineStatus,
+  PartModuleEnviroSensor,
+  EnviroSensorType,
+  PartModuleScienceExperiment,
+  ScienceExperimentState,
+  PartModuleSolarPanel,
+  SolarPanelState,
+  PartModuleGenerator,
+  GeneratorResourceFlow,
+  PartModuleLight,
+  PartModuleParachute,
+  ParachuteState,
+  ParachuteSafeState,
   PawEvent,
 } from '../core/part-data';
 
@@ -333,7 +352,21 @@ export function decodePaw(raw: unknown): PawEvent {
 
 // PartTopic(id). Wire:
 //   [persistentId, name, [screenX, screenY, visible],
-//    [[resourceName, abbr, available, capacity], ...]]
+//    [[resourceName, abbr, available, capacity], ...],
+//    [module, ...]]
+//
+// Each `module` row is itself tagged by a one-character kind in its
+// first element, followed by the common prefix (moduleName, events,
+// fields) and then per-kind extras. See `decodeModule` below for
+// the full dispatch.
+//
+// Fields rows are also tagged-union by first element:
+//   ['L', id, label, value]                                — label
+//   ['T', id, label, value, enabledText, disabledText]     — toggle
+//   ['R', id, label, value, min, max, step]                — slider (UI_FloatRange)
+//   ['N', id, label, value, min, max, incL, incS, incSl, unit] — numeric (UI_FloatEdit)
+//   ['O', id, label, selectedIndex, displays[]]            — dropdown (UI_ChooseOption)
+//   ['P', id, label, value, min, max]                      — progress bar
 //
 // Screen coordinates come off the wire in **Unity physical pixels**
 // — WorldToScreenPoint on KSP's camera returns backing-buffer
@@ -348,11 +381,16 @@ export function decodePaw(raw: unknown): PawEvent {
 // The UI freezes the PAW at the last-known position when `visible`
 // is false (part behind camera).
 type PartResourceWire = [string, string, number, number];
+// Module rows and field rows are tagged unions decoded in
+// `decodeModule` / `decodeField` below. Event rows stay flat
+// [name, guiName] and are decoded inline.
+type PartModuleWire = unknown[];
 type PartWire = [
   string,                                          // persistentId
   string,                                          // name
   [number, number, boolean],                       // screen: [x, y, visible]
   PartResourceWire[],                              // resources
+  PartModuleWire[]?,                               // modules (optional for forward-compat)
 ];
 
 interface PartMutable {
@@ -360,6 +398,7 @@ interface PartMutable {
   name: string;
   screen: { x: number; y: number; visible: boolean } | null;
   resources: readonly PartResourceData[];
+  modules: readonly PartModuleData[];
 }
 
 // Fresh per-decode rather than a module-scoped scratch: multiple open
@@ -387,11 +426,242 @@ export function decodePart(raw: unknown): PartData {
       capacity: r[3],
     };
   }
+  const modulesRaw = a[4] ?? [];
+  const modules = new Array<PartModuleData>(modulesRaw.length);
+  for (let i = 0; i < modulesRaw.length; i++) {
+    modules[i] = decodeModule(modulesRaw[i]);
+  }
   const frame: PartMutable = {
     persistentId: a[0],
     name: a[1],
     screen,
     resources,
+    modules,
   };
   return frame as PartData;
+}
+
+// Field row decoder — discriminator is the first element (one
+// character for wire compactness). Unknown kinds degrade to a label
+// carrying their string repr so a mismatched client / server version
+// still shows *something* rather than swallowing the row.
+function decodeField(raw: unknown): PartFieldData {
+  const a = raw as unknown[];
+  const kind = a[0] as string;
+  switch (kind) {
+    case 'L':
+      return {
+        kind: 'label',
+        id: a[1] as string,
+        label: a[2] as string,
+        value: a[3] as string,
+      };
+    case 'T':
+      return {
+        kind: 'toggle',
+        id: a[1] as string,
+        label: a[2] as string,
+        value: a[3] as boolean,
+        enabledText: a[4] as string,
+        disabledText: a[5] as string,
+      };
+    case 'R':
+      return {
+        kind: 'slider',
+        id: a[1] as string,
+        label: a[2] as string,
+        value: a[3] as number,
+        min: a[4] as number,
+        max: a[5] as number,
+        step: a[6] as number,
+      };
+    case 'N':
+      return {
+        kind: 'numeric',
+        id: a[1] as string,
+        label: a[2] as string,
+        value: a[3] as number,
+        min: a[4] as number,
+        max: a[5] as number,
+        incLarge: a[6] as number,
+        incSmall: a[7] as number,
+        incSlide: a[8] as number,
+        unit: a[9] as string,
+      };
+    case 'O':
+      return {
+        kind: 'option',
+        id: a[1] as string,
+        label: a[2] as string,
+        selectedIndex: a[3] as number,
+        display: a[4] as readonly string[],
+      };
+    case 'P':
+      return {
+        kind: 'progress',
+        id: a[1] as string,
+        label: a[2] as string,
+        value: a[3] as number,
+        min: a[4] as number,
+        max: a[5] as number,
+      };
+    default:
+      return {
+        kind: 'label',
+        id: String(a[1] ?? ''),
+        label: String(a[2] ?? kind),
+        value: `(unsupported: ${kind})`,
+      };
+  }
+}
+
+// Module row decoder. Wire shape per kind:
+//   ['G', moduleName, events, fields]                      — generic
+//   ['E', moduleName, status, thrustLimit, currentThrust,
+//        maxThrust, realIsp, [propellants]]                — ModuleEngines
+//   ['S', moduleName, sensorType, active, value, unit,
+//        statusText]                                       — ModuleEnviroSensor
+//
+// Typed kinds do NOT carry the generic events/fields arrays — the
+// bespoke renderer knows the schema and drives invokeEvent /
+// setField by hard-coded KSP member names.
+function decodeModule(raw: unknown): PartModuleData {
+  const a = raw as unknown[];
+  const kind = a[0] as string;
+  const moduleName = a[1] as string;
+
+  switch (kind) {
+    case 'E': {
+      const propellantsRaw = (a[7] as unknown[] | undefined) ?? [];
+      const propellants = new Array<PartEnginePropellant>(propellantsRaw.length);
+      for (let i = 0; i < propellantsRaw.length; i++) {
+        const p = propellantsRaw[i] as unknown[];
+        propellants[i] = {
+          name: p[0] as string,
+          displayName: p[1] as string,
+          ratio: p[2] as number,
+          currentAmount: p[3] as number,
+          totalAvailable: p[4] as number,
+        };
+      }
+      const out: PartModuleEngines = {
+        kind: 'engines',
+        moduleName,
+        status: (a[2] as PartEngineStatus) ?? 'shutdown',
+        thrustLimit: (a[3] as number) ?? 100,
+        currentThrust: (a[4] as number) ?? 0,
+        maxThrust: (a[5] as number) ?? 0,
+        realIsp: (a[6] as number) ?? 0,
+        propellants,
+      };
+      return out;
+    }
+    case 'S': {
+      const out: PartModuleEnviroSensor = {
+        kind: 'sensor',
+        moduleName,
+        sensorType: (a[2] as EnviroSensorType) ?? 'temperature',
+        active: (a[3] as boolean) ?? false,
+        value: (a[4] as number) ?? 0,
+        unit: (a[5] as string) ?? '',
+        statusText: (a[6] as string) ?? 'Off',
+      };
+      return out;
+    }
+    case 'X': {
+      const out: PartModuleScienceExperiment = {
+        kind: 'science',
+        moduleName,
+        experimentTitle: (a[2] as string) ?? '',
+        state: (a[3] as ScienceExperimentState) ?? 'stowed',
+        rerunnable: (a[4] as boolean) ?? false,
+        transmitValue: (a[5] as number) ?? 0,
+        dataAmount: (a[6] as number) ?? 0,
+      };
+      return out;
+    }
+    case 'V': {
+      const out: PartModuleSolarPanel = {
+        kind: 'solar',
+        moduleName,
+        state: (a[2] as SolarPanelState) ?? 'retracted',
+        flowRate: (a[3] as number) ?? 0,
+        chargeRate: (a[4] as number) ?? 0,
+        sunAOA: (a[5] as number) ?? 0,
+        retractable: (a[6] as boolean) ?? true,
+        isTracking: (a[7] as boolean) ?? false,
+      };
+      return out;
+    }
+    case 'R': {
+      const inRaw = (a[6] as unknown[] | undefined) ?? [];
+      const outRaw = (a[7] as unknown[] | undefined) ?? [];
+      const pickFlow = (row: unknown): GeneratorResourceFlow => {
+        const r = row as unknown[];
+        return { name: r[0] as string, rate: r[1] as number };
+      };
+      const out: PartModuleGenerator = {
+        kind: 'generator',
+        moduleName,
+        active: (a[2] as boolean) ?? false,
+        alwaysOn: (a[3] as boolean) ?? false,
+        efficiency: (a[4] as number) ?? 0,
+        status: (a[5] as string) ?? '',
+        inputs: inRaw.map(pickFlow),
+        outputs: outRaw.map(pickFlow),
+      };
+      return out;
+    }
+    case 'L': {
+      const out: PartModuleLight = {
+        kind: 'light',
+        moduleName,
+        on: (a[2] as boolean) ?? false,
+        r: (a[3] as number) ?? 1,
+        g: (a[4] as number) ?? 1,
+        b: (a[5] as number) ?? 1,
+      };
+      return out;
+    }
+    case 'C': {
+      const out: PartModuleParachute = {
+        kind: 'parachute',
+        moduleName,
+        state: (a[2] as ParachuteState) ?? 'stowed',
+        safeState: (a[3] as ParachuteSafeState) ?? 'none',
+        deployAltitude: (a[4] as number) ?? 1000,
+        minPressure: (a[5] as number) ?? 0.01,
+      };
+      return out;
+    }
+    case 'G':
+    default: {
+      const events = decodeEvents(a[2] as unknown[] | undefined);
+      const fields = decodeFields(a[3] as unknown[] | undefined);
+      const out: PartModuleGeneric = {
+        kind: 'generic',
+        moduleName,
+        events,
+        fields,
+      };
+      return out;
+    }
+  }
+}
+
+function decodeEvents(raw: unknown[] | undefined): PartEventData[] {
+  const src = raw ?? [];
+  const out = new Array<PartEventData>(src.length);
+  for (let i = 0; i < src.length; i++) {
+    const e = src[i] as unknown[];
+    out[i] = { id: e[0] as string, label: e[1] as string };
+  }
+  return out;
+}
+
+function decodeFields(raw: unknown[] | undefined): PartFieldData[] {
+  const src = raw ?? [];
+  const out = new Array<PartFieldData>(src.length);
+  for (let i = 0; i < src.length; i++) out[i] = decodeField(src[i]);
+  return out;
 }

@@ -17,6 +17,10 @@
       onClose={() => paws.close(paw.persistentId)}
       onRaise={() => paws.raise(paw.persistentId)}
       onPin={(pin) => paws.setPin(paw.persistentId, pin)}
+      onInvokeEvent={(moduleIndex, eventId) =>
+        paws.invokeEvent(paw.persistentId, moduleIndex, eventId)}
+      onSetField={(moduleIndex, fieldId, value) =>
+        paws.setField(paw.persistentId, moduleIndex, fieldId, value)}
     />
   {/each}
 </div>

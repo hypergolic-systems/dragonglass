@@ -22,6 +22,7 @@
   import { onDestroy } from 'svelte';
   import type { PartActionWindow } from '@dragonglass/telemetry/svelte';
   import type { PartResourceData } from '@dragonglass/telemetry/core';
+  import ModuleSection from './modules/ModuleSection.svelte';
 
   interface Props {
     paw: PartActionWindow;
@@ -31,9 +32,17 @@
     onRaise: () => void;
     /** Persist the pilot's drag offset. */
     onPin: (pin: { dx: number; dy: number }) => void;
+    /** Invoke a KSPEvent on a PartModule. */
+    onInvokeEvent: (moduleIndex: number, eventId: string) => void;
+    /** Write a KSPField value on a PartModule. */
+    onSetField: (
+      moduleIndex: number,
+      fieldId: string,
+      value: boolean | number,
+    ) => void;
   }
 
-  const { paw, onClose, onRaise, onPin }: Props = $props();
+  const { paw, onClose, onRaise, onPin, onInvokeEvent, onSetField }: Props = $props();
 
   // Default offset from the anchor point so a just-opened PAW doesn't
   // cover the part it describes. Right-and-slightly-up reads as
@@ -156,6 +165,9 @@
       };
     }) ?? [],
   );
+
+  const modules = $derived(paw.data?.modules ?? []);
+  const empty = $derived(rows.length === 0 && modules.length === 0);
 
   // Leader-line endpoints. Shape: a 45° diagonal leaves the anchor
   // toward the panel; depending on whether the horizontal or vertical
@@ -301,8 +313,18 @@
         </li>
       {/each}
     </ul>
-  {:else}
-    <p class="paw__empty">NO RESOURCES</p>
+  {/if}
+
+  {#each modules as module, idx (module.moduleName + ':' + idx)}
+    <ModuleSection
+      {module}
+      onInvokeEvent={(eventId) => onInvokeEvent(idx, eventId)}
+      onSetField={(fieldId, value) => onSetField(idx, fieldId, value)}
+    />
+  {/each}
+
+  {#if empty}
+    <p class="paw__empty">NO READOUTS</p>
   {/if}
 </section>
 

@@ -44,6 +44,21 @@ export interface PartActionWindowOps {
   raise(persistentId: string): void;
   /** Record a drag offset for a PAW. */
   setPin(persistentId: string, pin: { dx: number; dy: number }): void;
+  /**
+   * Click a button on a PartModule. Server addresses the target
+   * module by its index within `part.Modules` and the event by name.
+   */
+  invokeEvent(persistentId: string, moduleIndex: number, eventId: string): void;
+  /**
+   * Write a new value to a KSPField on a PartModule. See
+   * `PartOps.setField` for value-type expectations per field kind.
+   */
+  setField(
+    persistentId: string,
+    moduleIndex: number,
+    fieldId: string,
+    value: boolean | number,
+  ): void;
 }
 
 /**
@@ -92,6 +107,7 @@ export function usePartActionWindows(): PartActionWindowOps {
         name: frame.name,
         screen: frame.screen,
         resources: frame.resources,
+        modules: frame.modules,
       };
     });
     windows.push(seed);
@@ -121,5 +137,18 @@ export function usePartActionWindows(): PartActionWindowOps {
     if (w) w.pin = pin;
   }
 
-  return { windows, close, raise, setPin };
+  function invokeEvent(persistentId: string, moduleIndex: number, eventId: string): void {
+    telemetry.send(PartTopic(persistentId), 'invokeEvent', moduleIndex, eventId);
+  }
+
+  function setField(
+    persistentId: string,
+    moduleIndex: number,
+    fieldId: string,
+    value: boolean | number,
+  ): void {
+    telemetry.send(PartTopic(persistentId), 'setField', moduleIndex, fieldId, value);
+  }
+
+  return { windows, close, raise, setPin, invokeEvent, setField };
 }

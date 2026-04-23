@@ -227,6 +227,7 @@ function buildPart(persistentId: string, elapsed: number): PartData {
       name: `UNKNOWN PART ${persistentId}`,
       screen: null,
       resources: [],
+      modules: [],
     };
   }
   return {
@@ -234,6 +235,7 @@ function buildPart(persistentId: string, elapsed: number): PartData {
     name: fixture.name,
     screen: screenPosFor(fixture, elapsed),
     resources: fixture.resources.map((r) => scaleResource(r, elapsed)),
+    modules: fixture.modules,
   };
 }
 

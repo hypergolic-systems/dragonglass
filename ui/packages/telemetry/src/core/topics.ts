@@ -7,7 +7,7 @@ import type { AssemblyModel } from './assembly';
 import type { EngineData } from './engine-data';
 import type { StageData } from './stage-data';
 import type { StageOps } from './stage-ops';
-import type { PartData, PawEvent } from './part-data';
+import type { PartData, PawEvent, PartOps } from './part-data';
 
 export const ClockTopic = topic<ClockData>('clock');
 export const GameTopic = topic<GameData>('game');
@@ -27,8 +27,9 @@ export const PawTopic = topic<PawEvent>('paw');
  * Per-part telemetry topic. The topic name embeds the part's KSP
  * persistentId so multiple open PAWs subscribe independently; the
  * server only maintains the frame stream for parts with at least one
- * subscriber.
+ * subscriber. Carries `PartOps.invokeEvent` for the UI to click
+ * PartModule buttons (Deploy, Toggle, ...).
  */
-export function PartTopic(persistentId: string): Topic<PartData> {
-  return topic<PartData>(`part/${persistentId}`);
+export function PartTopic(persistentId: string): Topic<PartData, PartOps> {
+  return topic<PartData, PartOps>(`part/${persistentId}`);
 }
