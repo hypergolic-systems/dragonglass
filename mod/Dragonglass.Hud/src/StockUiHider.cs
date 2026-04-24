@@ -10,6 +10,7 @@
 // entry, and the patches fire on each new instance.
 
 using System.Reflection;
+using Dragonglass.Telemetry;
 using HarmonyLib;
 using KSP.UI.Screens;
 using KSP.UI.Screens.Flight;
@@ -33,6 +34,7 @@ namespace Dragonglass.Hud
             [HarmonyPostfix]
             private static void Postfix(NavBall __instance)
             {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
                 if (__instance == null || __instance.navBall == null) return;
 
                 Transform root = __instance.navBall;
@@ -62,35 +64,55 @@ namespace Dragonglass.Hud
         internal static class METDisplayPatch
         {
             [HarmonyPostfix]
-            private static void Postfix(METDisplay __instance) => HideSelf(__instance, "METDisplay");
+            private static void Postfix(METDisplay __instance)
+            {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
+                HideSelf(__instance, "METDisplay");
+            }
         }
 
         [HarmonyPatch(typeof(AltitudeTumbler), "Start")]
         internal static class AltitudeTumblerPatch
         {
             [HarmonyPostfix]
-            private static void Postfix(AltitudeTumbler __instance) => HideSelf(__instance, "AltitudeTumbler");
+            private static void Postfix(AltitudeTumbler __instance)
+            {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
+                HideSelf(__instance, "AltitudeTumbler");
+            }
         }
 
         [HarmonyPatch(typeof(VerticalSpeedGauge), "Start")]
         internal static class VerticalSpeedGaugePatch
         {
             [HarmonyPostfix]
-            private static void Postfix(VerticalSpeedGauge __instance) => HideSelf(__instance, "VerticalSpeedGauge");
+            private static void Postfix(VerticalSpeedGauge __instance)
+            {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
+                HideSelf(__instance, "VerticalSpeedGauge");
+            }
         }
 
         [HarmonyPatch(typeof(SpeedDisplay), "Start")]
         internal static class SpeedDisplayPatch
         {
             [HarmonyPostfix]
-            private static void Postfix(SpeedDisplay __instance) => HideSelf(__instance, "SpeedDisplay");
+            private static void Postfix(SpeedDisplay __instance)
+            {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
+                HideSelf(__instance, "SpeedDisplay");
+            }
         }
 
         [HarmonyPatch(typeof(LinearControlGauges), "Start")]
         internal static class LinearControlGaugesPatch
         {
             [HarmonyPostfix]
-            private static void Postfix(LinearControlGauges __instance) => HideSelf(__instance, "LinearControlGauges");
+            private static void Postfix(LinearControlGauges __instance)
+            {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
+                HideSelf(__instance, "LinearControlGauges");
+            }
         }
 
         // Stock stager. Dragonglass's StagingStack replaces it;
@@ -113,6 +135,7 @@ namespace Dragonglass.Hud
             [HarmonyPostfix]
             private static void Postfix(StageManager __instance)
             {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
                 if (__instance == null || _anchorField == null) return;
                 var anchor = _anchorField.GetValue(__instance) as MonoBehaviour;
                 if (anchor == null || anchor.gameObject == null)
@@ -140,7 +163,7 @@ namespace Dragonglass.Hud
         internal static class ShowHideStageStackPatch
         {
             [HarmonyPrefix]
-            private static bool Prefix() => false;
+            private static bool Prefix() => !Capabilities.Has(Capabilities.FlightUi);
         }
 
         // Several widgets have no dedicated MonoBehaviour we can patch:
@@ -166,6 +189,7 @@ namespace Dragonglass.Hud
             [HarmonyPostfix]
             private static void Postfix()
             {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
                 HideByPath("Flight/TimeFrame");
                 HideByPath("Flight/TopFrame/IVACollapseGroup");
                 HideByPath("Flight/UIModeFrame/EVACollapseGroup/UIModeSelector");

@@ -12,6 +12,8 @@
 //                       5+ → on-rails warp (5, 10, 50, 100, 1000, …)
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Dragonglass.Telemetry.Util;
 using UnityEngine;
@@ -56,6 +58,22 @@ namespace Dragonglass.Telemetry.Topics
                 ActiveVesselId = null;
             }
             Timewarp = TimeWarp.CurrentRate;
+        }
+
+        public override void HandleOp(string op, List<object> args)
+        {
+            switch (op)
+            {
+                case "setCapabilities":
+                    if (args.Count == 1 && args[0] is List<object> list)
+                        Capabilities.Set(list.OfType<string>());
+                    else
+                        Debug.LogWarning("[Dragonglass/Telemetry] GameTopic.setCapabilities: expected [string[]]");
+                    break;
+                default:
+                    base.HandleOp(op, args);
+                    break;
+            }
         }
 
         public override void WriteData(StringBuilder sb)

@@ -2,7 +2,14 @@
   import { setKsp, useGame } from '@dragonglass/telemetry/svelte';
   import { SimulatedKsp } from '@dragonglass/telemetry/simulated';
   import { DragonglassTelemetry } from '@dragonglass/telemetry/dragonglass';
-  import type { Ksp } from '@dragonglass/telemetry/core';
+  import {
+    GameTopic,
+    CAP_FLIGHT_UI,
+    CAP_FLIGHT_PAW,
+    CAP_EDITOR_PARTS,
+    CAP_EDITOR_PAW,
+    type Ksp,
+  } from '@dragonglass/telemetry/core';
   import FlightHUD from './screens/FlightHUD/FlightHUD.svelte';
   import EditorHUD from './screens/EditorHUD.svelte';
   import ScenePlaceholder from './screens/ScenePlaceholder.svelte';
@@ -15,7 +22,18 @@
   const ksp: Ksp = wsUrl
     ? new DragonglassTelemetry(wsUrl)
     : new SimulatedKsp();
-  ksp.connect();
+  // Declare which stock KSP chrome this app replaces. Deferred until
+  // `connect()` resolves because `send()` drops frames on a closed
+  // socket — no client-side queue. The plugin records the set and
+  // Harmony patches consult it from here on.
+  ksp.connect().then(() => {
+    ksp.send(GameTopic, 'setCapabilities', [
+      CAP_FLIGHT_UI,
+      CAP_FLIGHT_PAW,
+      CAP_EDITOR_PARTS,
+      CAP_EDITOR_PAW,
+    ]);
+  });
   setKsp(ksp);
 
   const game = useGame();

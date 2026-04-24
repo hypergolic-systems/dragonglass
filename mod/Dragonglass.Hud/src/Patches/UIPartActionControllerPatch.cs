@@ -26,7 +26,10 @@ namespace Dragonglass.Hud.Patches
         private static bool Prefix(Part part)
         {
             GameScenes s = HighLogic.LoadedScene;
-            if (s != GameScenes.FLIGHT && s != GameScenes.EDITOR) return true;
+            string cap = s == GameScenes.FLIGHT ? Capabilities.FlightPaw
+                       : s == GameScenes.EDITOR ? Capabilities.EditorPaw
+                       : null;
+            if (cap == null || !Capabilities.Has(cap)) return true;
             if (part == null) return false;
             PawBus.Raise(part.persistentId);
             return false;

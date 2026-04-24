@@ -1,6 +1,7 @@
 import { topic, type Topic } from './ksp';
 import type { ClockData } from './clock-data';
 import type { GameData } from './game-data';
+import type { GameOps } from './game-ops';
 import type { FlightData } from './flight-data';
 import type { FlightOps } from './flight-ops';
 import type { AssemblyModel } from './assembly';
@@ -11,7 +12,7 @@ import type { PartData, PawEvent, PartOps } from './part-data';
 import type { PartCatalogData, PartCatalogOps } from './part-catalog-data';
 
 export const ClockTopic = topic<ClockData>('clock');
-export const GameTopic = topic<GameData>('game');
+export const GameTopic = topic<GameData, GameOps>('game');
 export const FlightTopic = topic<FlightData, FlightOps>('flight');
 export const AssemblyTopic = topic<AssemblyModel>('assembly');
 export const EngineTopic = topic<EngineData>('engines');

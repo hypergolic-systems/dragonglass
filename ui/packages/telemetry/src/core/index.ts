@@ -1,6 +1,14 @@
 export { type Topic, type Ksp, topic } from './ksp';
 export { type ClockData } from './clock-data';
 export { type GameData } from './game-data';
+export { type GameOps } from './game-ops';
+export {
+  type Capability,
+  CAP_FLIGHT_UI,
+  CAP_FLIGHT_PAW,
+  CAP_EDITOR_PARTS,
+  CAP_EDITOR_PAW,
+} from './capabilities';
 export { type FlightData, type SpeedDisplayMode } from './flight-data';
 export {
   type ResourceId,

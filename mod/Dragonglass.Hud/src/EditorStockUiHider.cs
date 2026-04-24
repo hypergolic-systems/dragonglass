@@ -13,6 +13,7 @@
 // that Instance every frame without a null-check, NREing continuously.
 
 using System.Collections;
+using Dragonglass.Telemetry;
 using HarmonyLib;
 using KSP.UI;
 using KSP.UI.Screens;
@@ -44,6 +45,7 @@ namespace Dragonglass.Hud
             [HarmonyPostfix]
             private static void Postfix(EditorPanels __instance)
             {
+                if (!Capabilities.Has(Capabilities.EditorParts)) return;
                 if (__instance == null) return;
                 __instance.StartCoroutine(HideAfterChildAwakes(__instance));
             }
