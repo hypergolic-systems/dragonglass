@@ -13,15 +13,7 @@
   // `role="menu"` + `role="menuitem"` so screen readers treat it as
   // a popup menu rather than a free-floating div.
 
-  export interface MenuItem {
-    readonly label: string;
-    readonly disabled?: boolean;
-    readonly danger?: boolean;
-    /** Fires on click or Enter. The component also dismisses after
-     *  invocation — callers should not call the dismiss function
-     *  themselves. */
-    onSelect(): void;
-  }
+  import type { MenuItem } from './context-menu';
 
   let {
     items,

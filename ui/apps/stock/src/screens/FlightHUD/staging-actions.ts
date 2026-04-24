@@ -15,7 +15,7 @@ import type {
   StageOps,
   StagingPart,
 } from '@dragonglass/telemetry/core';
-import type { MenuItem } from './ContextMenu.svelte';
+import type { MenuItem } from './context-menu';
 
 /** A single icon in the rendered stage card, with whatever context
  *  its right-click menu / drag handler needs. Built by

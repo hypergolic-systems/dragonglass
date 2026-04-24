@@ -37,7 +37,8 @@
   import { useStageData, useStageOps } from '@dragonglass/telemetry/svelte';
   import type { StageEntry } from '@dragonglass/telemetry/core';
   import StageCard from './StageCard.svelte';
-  import ContextMenu, { type MenuItem } from './ContextMenu.svelte';
+  import ContextMenu from './ContextMenu.svelte';
+  import type { MenuItem } from './context-menu';
   import { buildPartMenu, type PartRenderItem } from './staging-actions';
 
   const s = useStageData();
