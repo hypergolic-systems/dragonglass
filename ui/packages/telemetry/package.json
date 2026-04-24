@@ -7,7 +7,8 @@
     "./core": "./src/core/index.ts",
     "./svelte": "./src/svelte/index.ts",
     "./simulated": "./src/simulated/index.ts",
-    "./dragonglass": "./src/dragonglass/index.ts"
+    "./dragonglass": "./src/dragonglass/index.ts",
+    "./smoothing": "./src/smoothing/index.ts"
   },
   "dependencies": {
     "three": "^0.160.1"
