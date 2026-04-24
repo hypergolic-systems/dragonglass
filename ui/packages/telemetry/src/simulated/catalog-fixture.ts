@@ -17,6 +17,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: "A basic command pod designed for one Kerbal.",
       techRequired: 'start',
       tags: 'capsule crew cmd mk1',
+      iconBase64: '',
     },
     {
       name: 'Mark1-2Pod',
@@ -28,6 +29,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: "Holds three Kerbals in relative comfort.",
       techRequired: 'advRocketry',
       tags: 'capsule crew cmd mk1-3',
+      iconBase64: '',
     },
     {
       name: 'probeCoreOcto',
@@ -39,6 +41,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'A tiny probe core for early unmanned missions.',
       techRequired: 'flightControl',
       tags: 'probe unmanned octo',
+      iconBase64: '',
     },
     {
       name: 'liquidEngine',
@@ -50,6 +53,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'A reliable gimballed liquid fuel engine.',
       techRequired: 'generalRocketry',
       tags: 'engine swivel lv-t45',
+      iconBase64: '',
     },
     {
       name: 'liquidEngine2',
@@ -61,6 +65,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'A non-gimballed workhorse with better ISP than the Swivel.',
       techRequired: 'basicRocketry',
       tags: 'engine reliant lv-t30',
+      iconBase64: '',
     },
     {
       name: 'solidBooster',
@@ -72,6 +77,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'A burn-once solid fuel booster. Cheap thrust.',
       techRequired: 'start',
       tags: 'srb booster hammer rt-10',
+      iconBase64: '',
     },
     {
       name: 'fuelTank',
@@ -83,6 +89,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'Stocks 360 units of liquid fuel and 440 of oxidizer.',
       techRequired: 'basicRocketry',
       tags: 'fuel tank lfo',
+      iconBase64: '',
     },
     {
       name: 'fuelTank1-2',
@@ -94,6 +101,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'Holds half as much as the FL-T800 at half the mass.',
       techRequired: 'basicRocketry',
       tags: 'fuel tank lfo',
+      iconBase64: '',
     },
     {
       name: 'stackDecoupler',
@@ -105,6 +113,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'Separates stages. Gives 250 kN of ejection force.',
       techRequired: 'engineering101',
       tags: 'decoupler stack separator',
+      iconBase64: '',
     },
     {
       name: 'parachuteSingle',
@@ -116,6 +125,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'A basic radial parachute for graceful descents.',
       techRequired: 'start',
       tags: 'chute parachute recovery',
+      iconBase64: '',
     },
     {
       name: 'longAntenna',
@@ -127,6 +137,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'A small, deployable direct antenna.',
       techRequired: 'basicScience',
       tags: 'antenna comm direct',
+      iconBase64: '',
     },
     {
       name: 'solarPanels1',
@@ -138,6 +149,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'Cheap surface-mount solar panels.',
       techRequired: 'basicScience',
       tags: 'solar panel electric',
+      iconBase64: '',
     },
     {
       name: 'batteryBank',
@@ -149,6 +161,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'A 400-unit rechargeable battery pack.',
       techRequired: 'basicScience',
       tags: 'battery ec electric z-400',
+      iconBase64: '',
     },
     {
       name: 'sensorBarometer',
@@ -160,6 +173,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'Measures atmospheric pressure.',
       techRequired: 'basicScience',
       tags: 'science pressure',
+      iconBase64: '',
     },
     {
       name: 'sensorThermometer',
@@ -171,6 +185,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'Measures ambient temperature.',
       techRequired: 'basicScience',
       tags: 'science temp',
+      iconBase64: '',
     },
     {
       name: 'winglet3',
@@ -182,6 +197,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'Small aerodynamic control surface.',
       techRequired: 'aerodynamicSystems',
       tags: 'winglet control surface av-r8',
+      iconBase64: '',
     },
     {
       name: 'strutConnector',
@@ -193,6 +209,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       description: 'Rigid strut for reinforcing wobbly builds.',
       techRequired: 'generalConstruction',
       tags: 'strut structural',
+      iconBase64: '',
     },
   ],
 };

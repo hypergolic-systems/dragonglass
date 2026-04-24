@@ -69,6 +69,11 @@ export interface PartCatalogEntry {
   readonly techRequired: string;
   /** Localized search tags separated by stock's own delimiter. */
   readonly tags: string;
+  /** Base64-encoded PNG of the part's render, captured server-side
+   *  from `AvailablePart.iconPrefab`. Empty string when the capture
+   *  failed (missing prefab, bad layer). Clients compose
+   *  `data:image/png;base64,${iconBase64}` for an `<img>` src. */
+  readonly iconBase64: string;
 }
 
 export interface PartCatalogData {

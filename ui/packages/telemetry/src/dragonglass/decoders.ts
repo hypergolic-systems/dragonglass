@@ -865,6 +865,7 @@ export function decodePartCatalog(raw: unknown): PartCatalogData {
       description: (a[6] as string) ?? '',
       techRequired: (a[7] as string) ?? '',
       tags: (a[8] as string) ?? '',
+      iconBase64: (a[9] as string) ?? '',
     };
   }
   return { entries };

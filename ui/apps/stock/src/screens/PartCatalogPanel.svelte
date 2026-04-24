@@ -146,10 +146,27 @@
           onclick={() => onPick(entry)}
           onpointerdown={halt}
         >
-          <span class="cat__title">{entry.title}</span>
-          <span class="cat__meta">
-            <em class="cat__meta-mass">{entry.mass.toFixed(2)}<small>t</small></em>
-            <em class="cat__meta-cost">√{entry.cost.toFixed(0)}</em>
+          <!-- Server ships PNGs captured from stock iconPrefab; empty
+               string means capture failed or we're in the simulated
+               catalog. Fall back to a blank square so the row height
+               doesn't jitter between entries with and without icons. -->
+          {#if entry.iconBase64}
+            <img
+              class="cat__icon"
+              src={`data:image/png;base64,${entry.iconBase64}`}
+              alt=""
+              aria-hidden="true"
+              draggable="false"
+            />
+          {:else}
+            <span class="cat__icon cat__icon--empty" aria-hidden="true"></span>
+          {/if}
+          <span class="cat__text">
+            <span class="cat__title">{entry.title}</span>
+            <span class="cat__meta">
+              <em class="cat__meta-mass">{entry.mass.toFixed(2)}<small>t</small></em>
+              <em class="cat__meta-cost">√{entry.cost.toFixed(0)}</em>
+            </span>
           </span>
         </button>
       </li>
@@ -275,9 +292,10 @@
   .cat__entry-btn {
     flex: 1 1 auto;
     display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding: 4px 6px;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 4px;
     text-align: left;
     background: transparent;
     border: 1px solid transparent;
@@ -287,6 +305,33 @@
   .cat__entry-btn:hover {
     background: rgba(126, 245, 184, 0.08);
     border-color: var(--line-accent);
+  }
+  .cat__entry-btn:hover .cat__icon {
+    filter: drop-shadow(0 0 4px rgba(126, 245, 184, 0.35));
+  }
+
+  /* Thumbnail. Fixed square so the text column stays aligned even
+     when a capture failed and we fall back to an empty placeholder. */
+  .cat__icon {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    image-rendering: auto;
+    object-fit: contain;
+    transition: filter 140ms ease;
+  }
+  .cat__icon--empty {
+    display: block;
+    border: 1px dashed var(--line);
+    opacity: 0.3;
+  }
+
+  .cat__text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .cat__title {

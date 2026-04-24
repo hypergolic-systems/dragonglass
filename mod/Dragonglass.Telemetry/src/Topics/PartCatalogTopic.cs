@@ -7,7 +7,7 @@
 //
 // Wire format (positional):
 //   data: [[name, title, category, manufacturer, cost, mass,
-//           description, techRequired, tags], ...]
+//           description, techRequired, tags, iconBase64], ...]
 //
 //     name          : stock internal id ("liquidEngine1"). Stable across
 //                     game versions; used as the pick op's key when the
@@ -31,11 +31,13 @@
 //                     Tier 0.
 //     tags          : localized searchable tags. Supports multi-word
 //                     search without hitting the description.
-//
-// Icons are omitted from the spike — stock uses Unity prefab-rendered
-// thumbnails that require a camera capture to produce a bitmap.
-// Follow-up task: snapshot each `partPrefab.iconPrefab` into a
-// texture and ship a Mime64 PNG or a sprite sheet.
+//     iconBase64    : base64-encoded PNG (no data:image/png prefix —
+//                     the client adds it). Captured from the live
+//                     `iconPrefab` on first WriteData and cached for
+//                     the process lifetime. Empty string when capture
+//                     failed (bad prefab, missing layer). Each icon
+//                     is ~2-5 KB; the catalog payload is ~1 MB for
+//                     stock KSP, cheap for a one-shot emission.
 
 using System.Collections.Generic;
 using System.Text;
@@ -131,6 +133,8 @@ namespace Dragonglass.Telemetry.Topics
                     Json.WriteString(sb, p.TechRequired ?? "");
                     sb.Append(',');
                     Json.WriteString(sb, p.tags ?? "");
+                    sb.Append(',');
+                    Json.WriteString(sb, PartIconCapture.GetOrCapture(p));
                     sb.Append(']');
                 }
             }
