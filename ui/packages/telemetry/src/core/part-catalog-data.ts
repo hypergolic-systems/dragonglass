@@ -74,6 +74,11 @@ export interface PartCatalogEntry {
    *  failed (missing prefab, bad layer). Clients compose
    *  `data:image/png;base64,${iconBase64}` for an `<img>` src. */
   readonly iconBase64: string;
+  /** Comma-separated stock attach-node profile ids — `"size0"`,
+   *  `"size1,srf"`, `"mk2,mk3"`. Parts with no stack nodes emit
+   *  empty string. Used to filter the catalog by current node
+   *  context (or a size chip in the UI). */
+  readonly bulkheadProfiles: string;
 }
 
 export interface PartCatalogData {

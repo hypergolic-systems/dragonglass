@@ -7,7 +7,8 @@
 //
 // Wire format (positional):
 //   data: [[name, title, category, manufacturer, cost, mass,
-//           description, techRequired, tags, iconBase64], ...]
+//           description, techRequired, tags, iconBase64,
+//           bulkheadProfiles], ...]
 //
 //     name          : stock internal id ("liquidEngine1"). Stable across
 //                     game versions; used as the pick op's key when the
@@ -38,6 +39,12 @@
 //                     failed (bad prefab, missing layer). Each icon
 //                     is ~2-5 KB; the catalog payload is ~1 MB for
 //                     stock KSP, cheap for a one-shot emission.
+//     bulkheadProfiles : comma-separated stock attach-node profile
+//                     ids ("size0", "size1", "mk2", "srf", …). Used
+//                     by the client to filter the list by the
+//                     player's current attachment context — a size-2
+//                     selected node narrows to size-2-compatible
+//                     parts. Empty for parts with no stack nodes.
 
 using System.Collections.Generic;
 using System.Text;
@@ -135,6 +142,8 @@ namespace Dragonglass.Telemetry.Topics
                     Json.WriteString(sb, p.tags ?? "");
                     sb.Append(',');
                     Json.WriteString(sb, PartIconCapture.GetOrCapture(p));
+                    sb.Append(',');
+                    Json.WriteString(sb, p.bulkheadProfiles ?? "");
                     sb.Append(']');
                 }
             }

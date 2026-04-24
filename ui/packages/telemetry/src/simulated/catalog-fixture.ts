@@ -18,6 +18,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'start',
       tags: 'capsule crew cmd mk1',
       iconBase64: '',
+      bulkheadProfiles: 'size1',
     },
     {
       name: 'Mark1-2Pod',
@@ -30,6 +31,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'advRocketry',
       tags: 'capsule crew cmd mk1-3',
       iconBase64: '',
+      bulkheadProfiles: 'size2',
     },
     {
       name: 'probeCoreOcto',
@@ -42,6 +44,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'flightControl',
       tags: 'probe unmanned octo',
       iconBase64: '',
+      bulkheadProfiles: 'size0',
     },
     {
       name: 'liquidEngine',
@@ -54,6 +57,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'generalRocketry',
       tags: 'engine swivel lv-t45',
       iconBase64: '',
+      bulkheadProfiles: 'size1',
     },
     {
       name: 'liquidEngine2',
@@ -66,6 +70,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'basicRocketry',
       tags: 'engine reliant lv-t30',
       iconBase64: '',
+      bulkheadProfiles: 'size1',
     },
     {
       name: 'solidBooster',
@@ -78,6 +83,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'start',
       tags: 'srb booster hammer rt-10',
       iconBase64: '',
+      bulkheadProfiles: 'size1,srf',
     },
     {
       name: 'fuelTank',
@@ -90,6 +96,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'basicRocketry',
       tags: 'fuel tank lfo',
       iconBase64: '',
+      bulkheadProfiles: 'size1',
     },
     {
       name: 'fuelTank1-2',
@@ -102,6 +109,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'basicRocketry',
       tags: 'fuel tank lfo',
       iconBase64: '',
+      bulkheadProfiles: 'size1',
     },
     {
       name: 'stackDecoupler',
@@ -114,6 +122,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'engineering101',
       tags: 'decoupler stack separator',
       iconBase64: '',
+      bulkheadProfiles: 'size1',
     },
     {
       name: 'parachuteSingle',
@@ -126,6 +135,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'start',
       tags: 'chute parachute recovery',
       iconBase64: '',
+      bulkheadProfiles: 'srf',
     },
     {
       name: 'longAntenna',
@@ -138,6 +148,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'basicScience',
       tags: 'antenna comm direct',
       iconBase64: '',
+      bulkheadProfiles: 'srf',
     },
     {
       name: 'solarPanels1',
@@ -150,6 +161,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'basicScience',
       tags: 'solar panel electric',
       iconBase64: '',
+      bulkheadProfiles: 'srf',
     },
     {
       name: 'batteryBank',
@@ -162,6 +174,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'basicScience',
       tags: 'battery ec electric z-400',
       iconBase64: '',
+      bulkheadProfiles: 'srf',
     },
     {
       name: 'sensorBarometer',
@@ -174,6 +187,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'basicScience',
       tags: 'science pressure',
       iconBase64: '',
+      bulkheadProfiles: 'srf',
     },
     {
       name: 'sensorThermometer',
@@ -186,6 +200,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'basicScience',
       tags: 'science temp',
       iconBase64: '',
+      bulkheadProfiles: 'srf',
     },
     {
       name: 'winglet3',
@@ -198,6 +213,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'aerodynamicSystems',
       tags: 'winglet control surface av-r8',
       iconBase64: '',
+      bulkheadProfiles: 'srf',
     },
     {
       name: 'strutConnector',
@@ -210,6 +226,7 @@ export const SIM_PART_CATALOG: PartCatalogData = {
       techRequired: 'generalConstruction',
       tags: 'strut structural',
       iconBase64: '',
+      bulkheadProfiles: 'srf',
     },
   ],
 };

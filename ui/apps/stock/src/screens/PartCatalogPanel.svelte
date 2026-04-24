@@ -20,6 +20,30 @@
   import { usePartCatalog, usePartCatalogOps } from '@dragonglass/telemetry/svelte';
   import type { PartCategory, PartCatalogEntry } from '@dragonglass/telemetry/core';
 
+  // LocalStorage key for the recently-picked ring buffer. Survives
+  // page reloads + scene switches so muscle memory compounds across
+  // sessions. Capped at RECENT_CAP to keep the bin visually tidy.
+  const RECENT_KEY = 'dragonglass.parts.recent';
+  const RECENT_CAP = 8;
+
+  // Stock attach-node profiles the size-chip row filters on. Labels
+  // match what players see in stock part descriptions ("1.25 m Stack")
+  // rather than the raw cfg keys (`size1`) so the panel reads as
+  // diameter-aware.
+  type Profile = 'size0' | 'size1' | 'size2' | 'size3' | 'mk2' | 'mk3' | 'srf';
+  const PROFILE_ORDER: readonly Profile[] = [
+    'size0', 'size1', 'size2', 'size3', 'mk2', 'mk3', 'srf',
+  ];
+  const PROFILE_LABEL: Record<Profile, string> = {
+    size0: '0.6m',
+    size1: '1.25m',
+    size2: '2.5m',
+    size3: '3.75m',
+    mk2: 'Mk2',
+    mk3: 'Mk3',
+    srf: 'Radial',
+  };
+
   // Stock chip order. Keeps chip rhythm consistent across installs
   // even when a modded pack adds new categories.
   const CHIP_ORDER: readonly PartCategory[] = [
@@ -100,10 +124,30 @@
   // toggles: clicking the active chip again clears back to null.
   let activeCategory = $state<PartCategory | null>(null);
   let search = $state('');
+  // Size-profile filter is multi-select. An empty set means "no
+  // profile constraint"; a non-empty set includes any part whose
+  // bulkheadProfiles intersects the selection.
+  let activeProfiles = $state<Set<Profile>>(new Set());
+  // Most-recent-first ring buffer of picked part names. Seeded from
+  // localStorage on mount and persisted on every pick.
+  let recent = $state<readonly string[]>([]);
 
   let searchEl = $state<HTMLInputElement | null>(null);
 
   onMount(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          recent = parsed.filter((x) => typeof x === 'string').slice(0, RECENT_CAP);
+        }
+      }
+    } catch {
+      // Corrupt JSON or storage quota — start fresh rather than fail
+      // the panel mount.
+    }
+
     // `/` to focus search — web-search muscle memory. Only hijack
     // when nothing else has focus, otherwise typing `/` in any text
     // field would steal the character.
@@ -121,6 +165,48 @@
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  function pushRecent(name: string) {
+    const next = [name, ...recent.filter((n) => n !== name)].slice(0, RECENT_CAP);
+    recent = next;
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    } catch {
+      // Storage full / disabled — the session still gets the reactive
+      // update; we just lose persistence until the next reload.
+    }
+  }
+
+  // Look up recent entries by name. Filter out any names that no
+  // longer exist in the catalog (game update removed a part, mod
+  // uninstalled). Rendered in recency order — the panel's recent
+  // strip reads left-to-right from most-recent.
+  const recentEntries = $derived.by(() => {
+    const byName = new Map(catalog.entries.map((e) => [e.name, e]));
+    return recent
+      .map((n) => byName.get(n))
+      .filter((e): e is PartCatalogEntry => e !== undefined);
+  });
+
+  function toggleProfile(p: Profile) {
+    const next = new Set(activeProfiles);
+    if (next.has(p)) next.delete(p);
+    else next.add(p);
+    activeProfiles = next;
+  }
+
+  function profileMatch(entry: PartCatalogEntry, profiles: Set<Profile>): boolean {
+    if (profiles.size === 0) return true;
+    const profs = entry.bulkheadProfiles;
+    if (!profs) return false;
+    // bulkheadProfiles is a comma+optional-space separated list. Lower-
+    // case match handles mixed-case values from mod parts.
+    const parts = profs.toLowerCase().split(/[,\s]+/).filter(Boolean);
+    for (const p of parts) {
+      if (profiles.has(p as Profile)) return true;
+    }
+    return false;
+  }
+
   // Per-category part counts. Computed once per catalog change so
   // the chip row shows "Pods · 12" without rescanning on every
   // render. Populated-only — empty categories drop out of the chip
@@ -137,9 +223,11 @@
     CHIP_ORDER.filter((c) => (counts.get(c) ?? 0) > 0),
   );
 
-  // Filter + sort. When search is non-empty it takes precedence over
-  // the category chip — the player can find a part across categories
-  // without knowing which bin it lives in.
+  // Filter + sort. Search, category, and size-profile chips compose:
+  // search narrows first across all parts; category filters within
+  // that; size-profile chips AND-refine further. Size chips stay
+  // active through search so "find an engine that fits my 1.25m
+  // stack" is a natural two-step interaction.
   const visible = $derived.by(() => {
     const q = search.trim().toLowerCase();
     let base: readonly PartCatalogEntry[] = catalog.entries;
@@ -151,12 +239,14 @@
     } else if (activeCategory !== null) {
       base = base.filter((e) => e.category === activeCategory);
     }
-    // Stable sort: title asc. Later: group by tech tier or sort by
-    // recently-picked, but those need per-session persistence.
+    if (activeProfiles.size > 0) {
+      base = base.filter((e) => profileMatch(e, activeProfiles));
+    }
     return [...base].sort((a, b) => a.title.localeCompare(b.title));
   });
 
   function onPick(entry: PartCatalogEntry) {
+    pushRecent(entry.name);
     ops.pickPart(entry.name);
   }
 
@@ -212,10 +302,46 @@
     {/if}
   </div>
 
-  <!-- Filter chips. Click to filter, click the same chip again to
-       clear (activeCategory flips back to null). When search is live
-       the chips hide — the query drives results and a stale chip
-       highlight would imply a filter that isn't active. -->
+  <!-- Recent-pick strip. A short horizontal lane of thumbnails that
+       compounds across sessions (localStorage ring buffer). Reads as
+       a "quick access" rail — the most-recent pick sits leftmost,
+       mirroring how browser history / IDE tabs order recency. Hidden
+       when the player hasn't picked anything yet. -->
+  {#if recentEntries.length > 0}
+    <div class="req__recent" aria-label="Recent picks">
+      <span class="req__recent-label" aria-hidden="true">RECENT</span>
+      <div class="req__recent-row">
+        {#each recentEntries as entry (entry.name)}
+          <button
+            type="button"
+            class="req__recent-btn"
+            onclick={() => onPick(entry)}
+            onpointerdown={halt}
+            title={entry.title}
+            aria-label={entry.title}
+          >
+            {#if entry.iconBase64}
+              <img
+                class="req__recent-icon"
+                src={`data:image/png;base64,${entry.iconBase64}`}
+                alt=""
+                aria-hidden="true"
+                draggable="false"
+              />
+            {:else}
+              <span class="req__recent-icon req__recent-icon--empty" aria-hidden="true">
+                {entry.title.charAt(0)}
+              </span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Category chips. Click to filter, click the active chip again to
+       clear back to "All". Hidden during search — the query drives
+       the list and showing both would imply two filters active. -->
   {#if !queryActive}
     <nav class="req__chips" aria-label="Category filters">
       <button
@@ -242,6 +368,32 @@
       {/each}
     </nav>
   {/if}
+
+  <!-- Size-profile chips. Multi-select: an active chip pins a
+       diameter filter that AND-refines the category/search result.
+       Stays live during search so "1.25 m engines" works as two
+       compound selections rather than search → category-click. -->
+  <nav class="req__chips req__chips--size" aria-label="Attach-size filters">
+    <span class="req__chips-legend" aria-hidden="true">SIZE</span>
+    {#each PROFILE_ORDER as p (p)}
+      <button
+        type="button"
+        class="req__chip req__chip--size"
+        class:req__chip--active={activeProfiles.has(p)}
+        onclick={() => toggleProfile(p)}
+        onpointerdown={halt}
+      >{PROFILE_LABEL[p]}</button>
+    {/each}
+    {#if activeProfiles.size > 0}
+      <button
+        type="button"
+        class="req__chip-clear"
+        onclick={() => (activeProfiles = new Set())}
+        onpointerdown={halt}
+        aria-label="Clear size filters"
+      >×</button>
+    {/if}
+  </nav>
 
   <!-- Result strip header. The lit phosphor segment + the word
        DISPATCH sells the idea that each row is something you can
@@ -494,12 +646,107 @@
   }
 
   /* ============================================================
+     Recent picks
+     ============================================================ */
+  .req__recent {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .req__recent-label {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.22em;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+  }
+  .req__recent-row {
+    display: flex;
+    gap: 3px;
+    overflow-x: auto;
+    padding: 1px 0 3px;
+    /* Hide horizontal scrollbar while keeping wheel/swipe scroll
+       working. 8+ recents overflow a 240 px panel so the buffer is
+       scrollable but still reads as a fixed strip. */
+    scrollbar-width: none;
+  }
+  .req__recent-row::-webkit-scrollbar {
+    display: none;
+  }
+  .req__recent-btn {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(126, 245, 184, 0.03);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      transform 140ms ease;
+  }
+  .req__recent-btn:hover,
+  .req__recent-btn:focus-visible {
+    background: rgba(126, 245, 184, 0.12);
+    border-color: var(--accent);
+    outline: none;
+    transform: translateY(-1px);
+  }
+  .req__recent-icon {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+  }
+  .req__recent-icon--empty {
+    font-family: var(--font-display);
+    font-size: 14px;
+    line-height: 24px;
+    text-align: center;
+    color: var(--accent);
+    text-shadow: 0 0 3px var(--accent-glow);
+    letter-spacing: 0;
+  }
+
+  /* ============================================================
      Chips
      ============================================================ */
   .req__chips {
     display: flex;
     flex-wrap: wrap;
     gap: 3px;
+  }
+  .req__chips--size {
+    align-items: center;
+    padding-top: 2px;
+    border-top: 1px dashed var(--line);
+  }
+  .req__chips-legend {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.22em;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+    margin-right: 2px;
+  }
+  .req__chip-clear {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1;
+    color: var(--fg-mute);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color 140ms ease;
+  }
+  .req__chip-clear:hover {
+    color: var(--alert);
   }
   .req__chip {
     display: flex;
