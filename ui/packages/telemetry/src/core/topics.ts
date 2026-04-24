@@ -8,7 +8,7 @@ import type { EngineData } from './engine-data';
 import type { StageData } from './stage-data';
 import type { StageOps } from './stage-ops';
 import type { PartData, PawEvent, PartOps } from './part-data';
-import type { PartCatalogData } from './part-catalog-data';
+import type { PartCatalogData, PartCatalogOps } from './part-catalog-data';
 
 export const ClockTopic = topic<ClockData>('clock');
 export const GameTopic = topic<GameData>('game');
@@ -30,7 +30,7 @@ export const PawTopic = topic<PawEvent>('paw');
  * change at runtime. Consumers should cache the first frame and
  * reuse it for the duration of the editor scene.
  */
-export const PartCatalogTopic = topic<PartCatalogData>('partCatalog');
+export const PartCatalogTopic = topic<PartCatalogData, PartCatalogOps>('partCatalog');
 
 /**
  * Per-part telemetry topic. The topic name embeds the part's KSP

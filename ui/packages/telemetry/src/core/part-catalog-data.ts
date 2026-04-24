@@ -74,3 +74,20 @@ export interface PartCatalogEntry {
 export interface PartCatalogData {
   readonly entries: readonly PartCatalogEntry[];
 }
+
+/**
+ * Ops the client sends back through `PartCatalogTopic`.
+ */
+export interface PartCatalogOps {
+  /**
+   * Editor-only. Picks up the named part and attaches it to the
+   * mouse cursor (stock's `EditorLogic.SpawnPart`). Stock's own
+   * placement logic handles the rest — the player moves the cursor
+   * into the 3D viewport and clicks to drop onto an attach node.
+   *
+   * `partName` is the stock internal id (`liquidEngine1`, etc.) —
+   * the `name` field on `PartCatalogEntry`, NOT its localized title.
+   * Unknown names are dropped server-side with a log line.
+   */
+  pickPart(partName: string): void;
+}

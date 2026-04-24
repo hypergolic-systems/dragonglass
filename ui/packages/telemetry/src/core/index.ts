@@ -85,5 +85,6 @@ export {
   type PartCatalogData,
   type PartCatalogEntry,
   type PartCategory,
+  type PartCatalogOps,
   CATEGORY_BY_INDEX,
 } from './part-catalog-data';

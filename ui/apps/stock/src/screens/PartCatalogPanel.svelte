@@ -9,7 +9,7 @@
   // pickPart(name) op, so clicks currently log. Wiring the op is the
   // next follow-up once this panel lands.
 
-  import { usePartCatalog } from '@dragonglass/telemetry/svelte';
+  import { usePartCatalog, usePartCatalogOps } from '@dragonglass/telemetry/svelte';
   import type { PartCategory, PartCatalogEntry } from '@dragonglass/telemetry/core';
 
   // Order the category tabs appear in. Chosen to match stock KSP's
@@ -58,6 +58,7 @@
   };
 
   const catalog = usePartCatalog();
+  const ops = usePartCatalogOps();
 
   let activeCategory = $state<PartCategory>('Pods');
   let search = $state('');
@@ -89,11 +90,12 @@
   });
 
   function onPick(entry: PartCatalogEntry) {
-    // Placeholder — the actual `pickPart(name)` op is a follow-up.
-    // Logging here lets the dev console confirm the click path works
-    // before we wire the server-side spawn.
-    // eslint-disable-next-line no-console
-    console.log('[catalog] pick', entry.name, entry.title);
+    // Send the pick over the wire. The server resolves the part by
+    // name and hands it to stock's `EditorLogic.SpawnPart`, which
+    // attaches the prefab to the cursor. From there stock's own
+    // placement FSM takes over — the player moves the cursor into
+    // the 3D viewport and clicks to drop onto an attach node.
+    ops.pickPart(entry.name);
   }
 
   // Stop pointer-down from reaching the drag surface underneath

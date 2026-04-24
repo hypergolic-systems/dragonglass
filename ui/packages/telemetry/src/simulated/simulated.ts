@@ -104,6 +104,16 @@ export class SimulatedKsp implements Ksp {
     op: K,
     ...args: OpArgs<Ops, K>
   ): void {
+    // Simulated pickPart — the dev-mode simulator has no 3D scene to
+    // attach parts to, so we just log. Real KSP routes the op into
+    // EditorLogic.SpawnPart. Useful as a smoke test: confirms the
+    // op path wires up end-to-end before you boot the mod.
+    if (topic.name === PartCatalogTopic.name && op === 'pickPart') {
+      // eslint-disable-next-line no-console
+      console.info('[sim] pickPart', args[0]);
+      return;
+    }
+
     // Forward flight ops to the local simulation so dev-mode buttons
     // are actually interactive. Unknown (topic, op) combinations drop
     // silently — same posture as the mod.

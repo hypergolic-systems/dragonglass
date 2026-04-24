@@ -57,6 +57,43 @@ namespace Dragonglass.Telemetry.Topics
             MarkDirty();
         }
 
+        // Inbound ops. The client fires `pickPart(name)` when the
+        // user clicks a row in the catalog panel — we look the part
+        // up in the loader and hand it to `EditorLogic.SpawnPart`,
+        // which does the heavy lifting (instantiate prefab, attach
+        // to cursor, kick the editor FSM into the on_partCreated
+        // state). Stock's own placement code takes over from here:
+        // the user moves the mouse into the 3D viewport and clicks
+        // to drop the part onto an attach node.
+        public override void HandleOp(string op, List<object> args)
+        {
+            switch (op)
+            {
+                case "pickPart":
+                    if (HighLogic.LoadedScene != GameScenes.EDITOR) return;
+                    if (args == null || args.Count < 1) return;
+                    if (!(args[0] is string name) || string.IsNullOrEmpty(name)) return;
+                    AvailablePart ap = PartLoader.getPartInfoByName(name);
+                    if (ap == null)
+                    {
+                        Debug.LogWarning(LogPrefix + "pickPart: unknown part '" + name + "'");
+                        return;
+                    }
+                    if (EditorLogic.fetch == null)
+                    {
+                        Debug.LogWarning(LogPrefix + "pickPart: EditorLogic.fetch is null");
+                        return;
+                    }
+                    EditorLogic.fetch.SpawnPart(ap);
+                    break;
+                default:
+                    Debug.LogWarning(LogPrefix + "PartCatalogTopic: unknown op '" + op + "'");
+                    break;
+            }
+        }
+
+        private const string LogPrefix = "[Dragonglass/Telemetry] ";
+
         public override void WriteData(StringBuilder sb)
         {
             sb.Append('[');
