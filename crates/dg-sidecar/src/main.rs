@@ -120,6 +120,183 @@ fn start_static_server(root_dir: &Path) -> Result<String> {
     Ok(base_url)
 }
 
+/// Translate a Windows virtual-key code (which is what the plugin
+/// ships on the wire, regardless of host OS) into the platform-native
+/// key code Chromium wants in `KeyEvent::native_key_code`.
+///
+/// macOS: Chromium's `keyboard_code_conversion_mac.mm` uses the NSEvent
+/// scancode to synthesise the Blink key identity — feeding it `0` makes
+/// every press look like the 'A' key, because NSEvent `0x00` is 'A'.
+/// Return the actual Mac scancode so DOM `keydown` reports the right
+/// key and editor commands (deleteContentBackward, moveCaret, …) fire.
+/// Unknown VKs fall through to `0xFFFF`, which Chromium treats as
+/// "no native mapping" rather than a valid scancode.
+///
+/// Windows: `native_key_code` carries the lParam-style scancode; for
+/// our purposes passing through the VK is the safer default (Chromium's
+/// Windows routing uses `windows_key_code` as the primary signal).
+#[cfg(target_os = "macos")]
+fn native_key_code_for(windows_vk: i32) -> i32 {
+    // Windows VK → macOS NSEvent keyCode. Covers the keys we emit from
+    // the plugin's `PolledKeyCodes` list (arrows / editing / function /
+    // navigation) plus the letters, digits, and keypad we hand through
+    // for completeness. Derived from `<HIToolbox/Events.h>` (`kVK_*`).
+    match windows_vk {
+        0x08 => 0x33,         // VK_BACK → Delete (Mac Backspace)
+        0x09 => 0x30,         // VK_TAB
+        0x0D => 0x24,         // VK_RETURN
+        0x10 => 0x38,         // VK_SHIFT (left)
+        0x11 => 0x3B,         // VK_CONTROL (left)
+        0x12 => 0x3A,         // VK_MENU (left alt/option)
+        0x13 => 0x71,         // VK_PAUSE → F15 (closest analogue)
+        0x14 => 0x39,         // VK_CAPITAL
+        0x1B => 0x35,         // VK_ESCAPE
+        0x20 => 0x31,         // VK_SPACE
+        0x21 => 0x74,         // VK_PRIOR (PageUp)
+        0x22 => 0x79,         // VK_NEXT  (PageDown)
+        0x23 => 0x77,         // VK_END
+        0x24 => 0x73,         // VK_HOME
+        0x25 => 0x7B,         // VK_LEFT
+        0x26 => 0x7E,         // VK_UP
+        0x27 => 0x7C,         // VK_RIGHT
+        0x28 => 0x7D,         // VK_DOWN
+        0x2D => 0x72,         // VK_INSERT → Help on Mac layouts
+        0x2E => 0x75,         // VK_DELETE (forward)
+        0x30 => 0x1D,         // 0
+        0x31 => 0x12,         // 1
+        0x32 => 0x13,         // 2
+        0x33 => 0x14,         // 3
+        0x34 => 0x15,         // 4
+        0x35 => 0x17,         // 5
+        0x36 => 0x16,         // 6
+        0x37 => 0x1A,         // 7
+        0x38 => 0x1C,         // 8
+        0x39 => 0x19,         // 9
+        0x41 => 0x00,         // A
+        0x42 => 0x0B,         // B
+        0x43 => 0x08,         // C
+        0x44 => 0x02,         // D
+        0x45 => 0x0E,         // E
+        0x46 => 0x03,         // F
+        0x47 => 0x05,         // G
+        0x48 => 0x04,         // H
+        0x49 => 0x22,         // I
+        0x4A => 0x26,         // J
+        0x4B => 0x28,         // K
+        0x4C => 0x25,         // L
+        0x4D => 0x2E,         // M
+        0x4E => 0x2D,         // N
+        0x4F => 0x1F,         // O
+        0x50 => 0x23,         // P
+        0x51 => 0x0C,         // Q
+        0x52 => 0x0F,         // R
+        0x53 => 0x01,         // S
+        0x54 => 0x11,         // T
+        0x55 => 0x20,         // U
+        0x56 => 0x09,         // V
+        0x57 => 0x0D,         // W
+        0x58 => 0x07,         // X
+        0x59 => 0x10,         // Y
+        0x5A => 0x06,         // Z
+        0x5B => 0x37,         // VK_LWIN → Cmd
+        0x5C => 0x36,         // VK_RWIN → right Cmd
+        0x60..=0x69 => match windows_vk {
+            0x60 => 0x52, 0x61 => 0x53, 0x62 => 0x54, 0x63 => 0x55,
+            0x64 => 0x56, 0x65 => 0x57, 0x66 => 0x58, 0x67 => 0x59,
+            0x68 => 0x5B, 0x69 => 0x5C, _ => 0xFFFF,
+        },
+        0x70..=0x7B => match windows_vk {
+            0x70 => 0x7A, 0x71 => 0x78, 0x72 => 0x63, 0x73 => 0x76,
+            0x74 => 0x60, 0x75 => 0x61, 0x76 => 0x62, 0x77 => 0x64,
+            0x78 => 0x65, 0x79 => 0x6D, 0x7A => 0x67, 0x7B => 0x6F,
+            _ => 0xFFFF,
+        },
+        0xA0 => 0x38,         // VK_LSHIFT
+        0xA1 => 0x3C,         // VK_RSHIFT
+        0xA2 => 0x3B,         // VK_LCONTROL
+        0xA3 => 0x3E,         // VK_RCONTROL
+        0xA4 => 0x3A,         // VK_LMENU (left alt)
+        0xA5 => 0x3D,         // VK_RMENU (right alt)
+        0xBA => 0x29,         // ;:
+        0xBB => 0x18,         // =+
+        0xBC => 0x2B,         // ,<
+        0xBD => 0x1B,         // -_
+        0xBE => 0x2F,         // .>
+        0xBF => 0x2C,         // /?
+        0xC0 => 0x32,         // `~
+        0xDB => 0x21,         // [
+        0xDC => 0x2A,         // \
+        0xDD => 0x1E,         // ]
+        0xDE => 0x27,         // '
+        _ => 0xFFFF,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn native_key_code_for(windows_vk: i32) -> i32 {
+    // On Windows Chromium reads the lParam-style scancode from
+    // native_key_code; the VK in windows_key_code is the primary
+    // routing signal. Passing the VK through here is fine — Chromium
+    // only uses native_key_code for disambiguation (left vs right
+    // shift, numpad vs top-row digits) which we don't distinguish
+    // from Unity's KeyCode anyway.
+    windows_vk
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn native_key_code_for(_windows_vk: i32) -> i32 {
+    0
+}
+
+/// Translate a Windows VK into the `character` / `unmodified_character`
+/// that CEF expects when the plugin has no Unity `Event.character` to
+/// hand us (our `Input.GetKeyDown`-based polling can't surface the
+/// character for non-text keys).
+///
+/// This matters because CEF's OSR key path reads these fields to
+/// build the `NativeWebKeyboardEvent` text / unmodified-text strings,
+/// and Blink's editor-command routing keys off them. Leaving them at
+/// zero causes the documented "Backspace deletes two characters / held
+/// arrows never stop repeating" bugs (CEF forum thread 11650): the
+/// browser's RAWKEYDOWN and KEYUP both look like "press with no
+/// character" which Chromium handles as two synthetic presses rather
+/// than a single press + release.
+///
+/// Returning `(0, 0)` means we have no correction for this VK — pass
+/// through whatever the plugin sent (including real text characters
+/// it extracted from `Input.inputString`).
+#[cfg(target_os = "macos")]
+fn mac_character_for(windows_vk: i32) -> Option<u16> {
+    // Windows VK → macOS NSEvent character (Cocoa NSFunctionKey PUA
+    // values + legacy ASCII controls). Derived from
+    // `<AppKit/NSEvent.h>` (NSDeleteCharacter, NS*ArrowFunctionKey,
+    // NSPageUpFunctionKey, …).
+    let c: u16 = match windows_vk {
+        0x08 => 0x7F,   // VK_BACK → NSDeleteCharacter
+        0x09 => 0x09,   // VK_TAB
+        0x0D => 0x0D,   // VK_RETURN
+        0x1B => 0x1B,   // VK_ESCAPE
+        0x21 => 0xF72C, // VK_PRIOR (PageUp)   → NSPageUpFunctionKey
+        0x22 => 0xF72D, // VK_NEXT  (PageDown) → NSPageDownFunctionKey
+        0x23 => 0xF72B, // VK_END              → NSEndFunctionKey
+        0x24 => 0xF729, // VK_HOME             → NSHomeFunctionKey
+        0x25 => 0xF702, // VK_LEFT             → NSLeftArrowFunctionKey
+        0x26 => 0xF700, // VK_UP               → NSUpArrowFunctionKey
+        0x27 => 0xF703, // VK_RIGHT            → NSRightArrowFunctionKey
+        0x28 => 0xF701, // VK_DOWN             → NSDownArrowFunctionKey
+        0x2D => 0xF746, // VK_INSERT           → NSHelpFunctionKey
+        0x2E => 0xF728, // VK_DELETE (forward) → NSDeleteFunctionKey
+        0x70..=0x7B => 0xF704 + (windows_vk - 0x70) as u16, // F1..F12
+        _ => return None,
+    };
+    Some(c)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn mac_character_for(_windows_vk: i32) -> Option<u16> {
+    None
+}
+
 /// Map an `InputEvent` from the SHM ring buffer into a CEF
 /// `BrowserHost::send_mouse_*` call. Resize and navigate events are
 /// handled in the drain block instead — they need extra state (the
@@ -141,22 +318,27 @@ fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent, device_scale: f3
     use dg_shm::layout::{
         INPUT_BTN_LEFT, INPUT_BTN_MIDDLE, INPUT_BTN_RIGHT, INPUT_KEY_CHAR, INPUT_KEY_DOWN,
         INPUT_KEY_UP, INPUT_MOUSE_DOWN, INPUT_MOUSE_MOVE, INPUT_MOUSE_UP, INPUT_MOUSE_WHEEL,
-        KEY_MOD_ALT, KEY_MOD_CONTROL, KEY_MOD_META, KEY_MOD_SHIFT,
+        KEY_MOD_ALT, KEY_MOD_CONTROL, KEY_MOD_META, KEY_MOD_SHIFT, MOUSE_HELD_LEFT,
+        MOUSE_HELD_MIDDLE, MOUSE_HELD_RIGHT,
     };
 
-    // Keyboard events. The plugin emits KEYDOWN (with VK + modifiers),
-    // optionally followed by CHAR (with the typed code unit), then
-    // KEYUP on release — matching CEF's RAWKEYDOWN → CHAR → KEYUP
-    // sequence. We forward each slot as one CEF call; CEF routes them
-    // to the focused editable / DOM handlers.
-    //
     // CEF's `cef_event_flags_t` bit values — the cef Rust crate doesn't
     // expose named constants for these in 146, and they've been stable
     // in CEF for years.
     const EVENTFLAG_SHIFT_DOWN: u32 = 1 << 1;
     const EVENTFLAG_CONTROL_DOWN: u32 = 1 << 2;
     const EVENTFLAG_ALT_DOWN: u32 = 1 << 3;
+    const EVENTFLAG_LEFT_MOUSE_BUTTON: u32 = 1 << 4;
+    const EVENTFLAG_MIDDLE_MOUSE_BUTTON: u32 = 1 << 5;
+    const EVENTFLAG_RIGHT_MOUSE_BUTTON: u32 = 1 << 6;
     const EVENTFLAG_COMMAND_DOWN: u32 = 1 << 7;
+
+    // Keyboard events. The plugin emits KEYDOWN (with VK + modifiers +
+    // character), optionally followed by CHAR, then KEYUP on release —
+    // matching CEF's RAWKEYDOWN → CHAR → KEYUP contract. Setting
+    // `character` on KEYDOWN (not just CHAR) matters on macOS: that's
+    // how Chromium's editor-command dispatch recognises Backspace /
+    // Delete / Enter and fires deleteContentBackward / insertParagraph.
     if evt.kind == INPUT_KEY_DOWN || evt.kind == INPUT_KEY_UP {
         let mut cef_mods: u32 = 0;
         if evt.y & KEY_MOD_SHIFT != 0 {
@@ -171,6 +353,21 @@ fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent, device_scale: f3
         if evt.y & KEY_MOD_META != 0 {
             cef_mods |= EVENTFLAG_COMMAND_DOWN;
         }
+        let character = (evt.extra as u32 & 0xFFFF) as u16;
+        let native = native_key_code_for(evt.x);
+        // CEF requires character / unmodified_character populated for
+        // editor keys (Backspace, arrows, …) — zeroes cause Chromium
+        // to treat each press as two synthetic presses, the
+        // double-delete / stuck-arrow-repeat bug documented in
+        // magpcss CEF forum thread 11650. Prefer the character the
+        // plugin sent (from Unity's `Event.character` on text keys);
+        // otherwise fall back to the VK-derived macOS NSEvent
+        // character for known editor keys.
+        let effective_character = if character != 0 {
+            character
+        } else {
+            mac_character_for(evt.x).unwrap_or(0)
+        };
         let key_event = cef::KeyEvent {
             type_: if evt.kind == INPUT_KEY_DOWN {
                 cef::KeyEventType::RAWKEYDOWN
@@ -179,7 +376,9 @@ fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent, device_scale: f3
             },
             modifiers: cef_mods,
             windows_key_code: evt.x,
-            native_key_code: evt.x,
+            native_key_code: native,
+            character: effective_character,
+            unmodified_character: effective_character,
             focus_on_editable_field: 1,
             ..Default::default()
         };
@@ -189,8 +388,8 @@ fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent, device_scale: f3
     if evt.kind == INPUT_KEY_CHAR {
         // UTF-16 code unit in the low 16 bits of `extra`. Typed char
         // events don't need key-code routing or modifier hints —
-        // Unity's Event.character / Input.inputString has already
-        // resolved layout / shift / IME into the final character.
+        // Unity's Event.character has already resolved layout / shift
+        // / IME into the final character.
         let key_event = cef::KeyEvent {
             type_: cef::KeyEventType::CHAR,
             character: (evt.extra as u32 & 0xFFFF) as u16,
@@ -206,10 +405,30 @@ fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent, device_scale: f3
     let dip_x = (evt.x as f32 / scale).round() as i32;
     let dip_y = (evt.y as f32 / scale).round() as i32;
 
+    // Held-button bitmask — plugin packs it into `extra` on every
+    // non-wheel mouse event. Chromium reads these flags from
+    // MouseEvent.modifiers to distinguish a drag from free hover; a
+    // text-selection drag fails silently without them.
+    let mouse_modifiers = if evt.kind != INPUT_MOUSE_WHEEL {
+        let mut m = 0u32;
+        if evt.extra & MOUSE_HELD_LEFT != 0 {
+            m |= EVENTFLAG_LEFT_MOUSE_BUTTON;
+        }
+        if evt.extra & MOUSE_HELD_RIGHT != 0 {
+            m |= EVENTFLAG_RIGHT_MOUSE_BUTTON;
+        }
+        if evt.extra & MOUSE_HELD_MIDDLE != 0 {
+            m |= EVENTFLAG_MIDDLE_MOUSE_BUTTON;
+        }
+        m
+    } else {
+        0
+    };
+
     let mouse_event = cef::MouseEvent {
         x: dip_x,
         y: dip_y,
-        modifiers: 0,
+        modifiers: mouse_modifiers,
     };
 
     match evt.kind {

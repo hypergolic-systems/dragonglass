@@ -126,7 +126,7 @@ time (`idx % INPUT_RING_CAPACITY`).
 |    2   |  2   | _pad_    | zero-filled                                     |
 |    4   |  4   | `x`      | CEF viewport x (i32) — width on Resize, URL bytes [0..4] on NavigateChunk, Windows VK on KeyDown/KeyUp, unused on KeyChar |
 |    8   |  4   | `y`      | CEF viewport y (i32) — height on Resize, URL bytes [4..8] on NavigateChunk, modifier bitmask on KeyDown/KeyUp (bit0 shift, bit1 ctrl, bit2 alt, bit3 meta), unused on KeyChar |
-|   12   |  4   | `extra`  | wheel delta (MouseWheel), URL byte length (Navigate), URL bytes [8..12] (NavigateChunk), UTF-16 code unit in low 16 bits (KeyChar), or 0 |
+|   12   |  4   | `extra`  | wheel delta (MouseWheel), held-button bitmask on MouseMove/Down/Up (bit0 left, bit1 right, bit2 middle), URL byte length (Navigate), URL bytes [8..12] (NavigateChunk), UTF-16 code unit in low 16 bits (KeyDown/KeyUp/KeyChar), or 0 |
 
 ### Multi-slot navigate messages
 

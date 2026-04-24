@@ -345,6 +345,7 @@ namespace Dragonglass.Hud
             if (_reader != null)
             {
                 SampleAndForwardMouse();
+                SampleAndForwardKeyboard();
                 UpdateKeyboardLock();
                 MaybeEmitResize();
             }
@@ -494,11 +495,20 @@ namespace Dragonglass.Hud
             if (cefY < 0) cefY = 0;
             else if (cefY >= overlayH) cefY = overlayH - 1;
 
+            // Held-button bitmask, included on every non-wheel mouse
+            // event so CEF can set MouseEvent.modifiers. Chromium
+            // needs these bits during drag — without them, mousemove
+            // looks like free hover and text selection never starts.
+            int held = 0;
+            if (Input.GetMouseButton(0)) held |= Layout.MouseHeldLeft;
+            if (Input.GetMouseButton(1)) held |= Layout.MouseHeldRight;
+            if (Input.GetMouseButton(2)) held |= Layout.MouseHeldMiddle;
+
             // Always forward mouse moves so CEF has correct hover state.
             if (!_hasLastMouse || mouse != _lastMousePosition)
             {
                 _reader.WriteInputEvent(
-                    Layout.InputMouseMove, Layout.InputBtnNone, cefX, cefY);
+                    Layout.InputMouseMove, Layout.InputBtnNone, cefX, cefY, held);
                 _lastMousePosition = mouse;
                 _hasLastMouse = true;
             }
@@ -523,12 +533,12 @@ namespace Dragonglass.Hud
                 if (Input.GetMouseButtonDown(btn))
                 {
                     _reader.WriteInputEvent(
-                        Layout.InputMouseDown, btnCode, cefX, cefY);
+                        Layout.InputMouseDown, btnCode, cefX, cefY, held);
                 }
                 if (Input.GetMouseButtonUp(btn))
                 {
                     _reader.WriteInputEvent(
-                        Layout.InputMouseUp, btnCode, cefX, cefY);
+                        Layout.InputMouseUp, btnCode, cefX, cefY, held);
                 }
             }
         }
@@ -578,44 +588,124 @@ namespace Dragonglass.Hud
         /// always sending. The KSP-side cost of shortcut collisions
         /// is handled by <see cref="UpdateKeyboardLock"/>.
         /// </summary>
-        private void OnGUI()
+        /// <summary>
+        /// Poll Unity's input state for keyboard events and forward to
+        /// CEF. We tried `OnGUI` + `Event.current.KeyDown / KeyUp` —
+        /// it gives both a keyCode and a character in one event and
+        /// would be the canonical choice, but in the KSP editor scene
+        /// OnGUI simply doesn't fire for key events, so we drop back
+        /// to polling. Two passes:
+        ///
+        ///   1. Walk a fixed list of non-character KeyCodes (arrows,
+        ///      Backspace, Delete, Escape, …) and emit KEY_DOWN /
+        ///      KEY_UP when `GetKeyDown` / `GetKeyUp` fires. These
+        ///      drive Chromium's DOM keydown / keyup and its editor
+        ///      commands (deleteContentBackward, MoveLeft, …).
+        ///   2. Iterate `Input.inputString`, emitting one KEY_CHAR per
+        ///      UTF-16 code unit. Covers text-producing keys (letters,
+        ///      digits, symbols, Backspace / Tab / Return — Unity
+        ///      surfaces those as `\b` / `\t` / `\r` in inputString).
+        ///
+        /// Scope note: we intentionally skip character-bearing
+        /// KeyCodes (A–Z, digits, punctuation, Shift/Ctrl/Alt/Cmd)
+        /// in pass 1 — pass 2 handles the character, and Chromium
+        /// doesn't need the RAWKEYDOWN for those to type into an
+        /// editable. The list below is limited to keys where the
+        /// CHAR path alone isn't enough: navigation, editing, and
+        /// shortcut triggers web UIs tend to wire keydown listeners
+        /// for.
+        /// </summary>
+        private static readonly KeyCode[] PolledKeyCodes = new[]
         {
-            if (_reader == null) return;
-            Event e = Event.current;
-            if (e == null) return;
+            KeyCode.Backspace,
+            KeyCode.Tab,
+            KeyCode.Return,
+            KeyCode.KeypadEnter,
+            KeyCode.Escape,
+            KeyCode.PageUp,
+            KeyCode.PageDown,
+            KeyCode.End,
+            KeyCode.Home,
+            KeyCode.LeftArrow,
+            KeyCode.UpArrow,
+            KeyCode.RightArrow,
+            KeyCode.DownArrow,
+            KeyCode.Insert,
+            KeyCode.Delete,
+            KeyCode.F1, KeyCode.F2, KeyCode.F3, KeyCode.F4,
+            KeyCode.F5, KeyCode.F6, KeyCode.F7, KeyCode.F8,
+            KeyCode.F9, KeyCode.F10, KeyCode.F11, KeyCode.F12,
+        };
 
-            if (e.type == EventType.KeyDown)
+        private void SampleAndForwardKeyboard()
+        {
+            int mods = CurrentModifierMask();
+
+            for (int i = 0; i < PolledKeyCodes.Length; i++)
             {
-                int mods = PackModifiers(e);
-                int vk = UnityKeyCodeToWindowsVk(e.keyCode);
-                if (vk != 0)
+                KeyCode k = PolledKeyCodes[i];
+                if (Input.GetKeyDown(k))
                 {
-                    _reader.WriteInputEvent(Layout.InputKeyDown, Layout.InputBtnNone, vk, mods);
+                    int vk = UnityKeyCodeToWindowsVk(k);
+                    if (vk != 0)
+                    {
+                        _reader.WriteInputEvent(
+                            Layout.InputKeyDown, Layout.InputBtnNone, vk, mods);
+                    }
                 }
-                if (e.character != 0 && e.character != '\0')
+                if (Input.GetKeyUp(k))
                 {
-                    _reader.WriteInputEvent(
-                        Layout.InputKeyChar, Layout.InputBtnNone, 0, 0, e.character);
+                    int vk = UnityKeyCodeToWindowsVk(k);
+                    if (vk != 0)
+                    {
+                        _reader.WriteInputEvent(
+                            Layout.InputKeyUp, Layout.InputBtnNone, vk, mods);
+                    }
                 }
             }
-            else if (e.type == EventType.KeyUp)
+
+            string s = Input.inputString;
+            if (!string.IsNullOrEmpty(s))
             {
-                int mods = PackModifiers(e);
-                int vk = UnityKeyCodeToWindowsVk(e.keyCode);
-                if (vk != 0)
+                for (int i = 0; i < s.Length; i++)
                 {
-                    _reader.WriteInputEvent(Layout.InputKeyUp, Layout.InputBtnNone, vk, mods);
+                    char c = s[i];
+                    // Skip non-text code units that would confuse CEF:
+                    //   • C0 controls < 0x20 — Chromium treats CHAR(\b)
+                    //     as a text insert and suppresses the
+                    //     deleteBackward editor command that the
+                    //     RAWKEYDOWN was meant to trigger. We emit
+                    //     KEY_DOWN/UP for Backspace/Tab/Return via
+                    //     the PolledKeyCodes pass above; the CHAR
+                    //     here is redundant at best, harmful at worst.
+                    //   • DEL 0x7F — same reason as \b.
+                    //   • macOS Cocoa function-key PUA 0xF700–0xF8FF
+                    //     — Unity surfaces arrow keys, F-keys, Home,
+                    //     End, etc. as these private-use codepoints
+                    //     on macOS, and they're exactly the keys
+                    //     whose editor commands the RAWKEYDOWN should
+                    //     drive. Forwarding them as CHAR kills the
+                    //     caret-movement / delete behaviour.
+                    if (c < 0x20) continue;
+                    if (c == 0x7F) continue;
+                    if (c >= 0xF700 && c <= 0xF8FF) continue;
+                    _reader.WriteInputEvent(
+                        Layout.InputKeyChar, Layout.InputBtnNone, 0, 0, c);
                 }
             }
         }
 
-        private static int PackModifiers(Event e)
+        private static int CurrentModifierMask()
         {
             int m = 0;
-            if ((e.modifiers & EventModifiers.Shift) != 0) m |= Layout.KeyModShift;
-            if ((e.modifiers & EventModifiers.Control) != 0) m |= Layout.KeyModControl;
-            if ((e.modifiers & EventModifiers.Alt) != 0) m |= Layout.KeyModAlt;
-            if ((e.modifiers & EventModifiers.Command) != 0) m |= Layout.KeyModMeta;
+            if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
+                m |= Layout.KeyModShift;
+            if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+                m |= Layout.KeyModControl;
+            if (Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt))
+                m |= Layout.KeyModAlt;
+            if (Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand))
+                m |= Layout.KeyModMeta;
             return m;
         }
 

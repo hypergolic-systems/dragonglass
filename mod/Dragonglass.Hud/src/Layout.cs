@@ -155,5 +155,13 @@ namespace Dragonglass.Hud
         public const byte InputBtnLeft = 1;
         public const byte InputBtnRight = 2;
         public const byte InputBtnMiddle = 3;
+
+        // Mouse held-button bitmask (packed into `extra` on mouse
+        // move / down / up events). Lets the sidecar set CEF's
+        // MouseEvent.modifiers so Chromium treats mousemove during a
+        // click as a drag — required for text selection to work.
+        public const int MouseHeldLeft = 1 << 0;
+        public const int MouseHeldRight = 1 << 1;
+        public const int MouseHeldMiddle = 1 << 2;
     }
 }

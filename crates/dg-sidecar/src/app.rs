@@ -200,7 +200,6 @@ wrap_render_handler! {
             input_mode: TextInputMode,
         ) {
             let wants = input_mode != TextInputMode::NONE;
-            eprintln!("on_virtual_keyboard_requested: wants={wants} input_mode={input_mode:?}");
             if let Ok(mut writer) = self.handler.writer.lock() {
                 writer.write_cef_wants_keyboard(wants);
             }
@@ -526,6 +525,14 @@ wrap_browser_process_handler! {
             match browser.as_ref().and_then(|b| b.host()) {
                 Some(host) => {
                     host.was_hidden(0);
+                    // Tell CEF the OSR view has logical keyboard focus.
+                    // Without this, Chromium drops non-character keys
+                    // (arrows, Delete, Home/End, Escape) on their way
+                    // to the DOM — text-typing works via the CHAR
+                    // path regardless, but editor-navigation keys
+                    // silently no-op. We're always the active UI, so
+                    // the flag stays on for the browser's lifetime.
+                    host.set_focus(1);
                     eprintln!("browser created, visibility -> shown");
                 }
                 None => {

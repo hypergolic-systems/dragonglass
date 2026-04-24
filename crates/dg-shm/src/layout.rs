@@ -113,10 +113,13 @@ pub const INPUT_NAVIGATE_CHUNK: u8 = 7;
 /// Raw key-down event. `x` carries the **Windows virtual-key code**
 /// (e.g. `VK_BACK = 8`, `VK_ESCAPE = 27`, `VK_LEFT = 37`), `y`
 /// carries a packed modifier bitmask (bit 0 shift, bit 1 ctrl, bit
-/// 2 alt, bit 3 meta/cmd), `extra` is unused. Mapped to a CEF
-/// `KEYEVENT_RAWKEYDOWN` on the sidecar side. Drives web
-/// `keydown` DOM events, so apps can wire `/` / Escape / arrow-key
-/// handlers that fire without waiting for a `CHAR`.
+/// 2 alt, bit 3 meta/cmd), `extra` carries the associated UTF-16
+/// code unit in its low 16 bits (`0` when the press produces no
+/// character — arrows, F-keys, modifiers). Setting `character` on
+/// KEYDOWN matters for macOS: Chromium's editor-command dispatch
+/// reads it from the KEYDOWN to route Backspace / Enter / Delete
+/// into `deleteContentBackward` / `insertParagraph` / etc. Mapped
+/// to a CEF `KEYEVENT_RAWKEYDOWN`.
 pub const INPUT_KEY_DOWN: u8 = 8;
 /// Raw key-up event. Same slot encoding as `INPUT_KEY_DOWN`, maps
 /// to CEF `KEYEVENT_KEYUP`.
@@ -147,6 +150,16 @@ pub const INPUT_BTN_NONE: u8 = 0;
 pub const INPUT_BTN_LEFT: u8 = 1;
 pub const INPUT_BTN_RIGHT: u8 = 2;
 pub const INPUT_BTN_MIDDLE: u8 = 3;
+
+// --- Mouse held-button bitmask (packed into the `extra` field of
+// mouse move / down / up slots; wheel slots still use `extra` for
+// the wheel delta). Chromium needs the held-button state set on
+// `MouseEvent.modifiers` during drags for text selection and
+// drag-and-drop to work — without it, mousemove looks like free
+// hover. ---
+pub const MOUSE_HELD_LEFT: i32 = 1 << 0;
+pub const MOUSE_HELD_RIGHT: i32 = 1 << 1;
+pub const MOUSE_HELD_MIDDLE: i32 = 1 << 2;
 
 /// Compile-time invariants. Any violation is a layout bug.
 const _: () = {
