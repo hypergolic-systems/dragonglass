@@ -40,8 +40,26 @@ export interface Ksp {
    * Subscribe to a topic. Returns an unsubscribe function.
    * Ref-counted: the first subscriber activates the topic,
    * the last unsubscribe deactivates it.
+   *
+   * `tObserved` is the local-clock time (seconds, same units as
+   * `performance.now() / 1000`) at which the frame was observed. For
+   * live frames this is arrival time; for cached snapshot frames
+   * replayed to late-mounting subscribers it's the replay time, so
+   * downstream interpolators treat the value as "the latest known
+   * state, current as of now" rather than projecting forward by
+   * however long ago the topic last changed.
+   *
+   * Today this is derived from `performance.now()`. In the future,
+   * once we estimate the server↔client clock offset (NTP-style), the
+   * transport will instead derive it from the envelope's `t_server`
+   * field minus the estimated offset, removing network-jitter from
+   * the observed timestamp. The seam lives in the transport;
+   * subscribers don't have to change.
    */
-  subscribe<T, Ops>(topic: Topic<T, Ops>, cb: (frame: T) => void): () => void;
+  subscribe<T, Ops>(
+    topic: Topic<T, Ops>,
+    cb: (frame: T, tObserved: number) => void,
+  ): () => void;
 
   /**
    * Invoke an op on a topic (client → server). Fire-and-forget —

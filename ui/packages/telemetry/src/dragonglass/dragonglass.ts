@@ -42,7 +42,7 @@ const PART_TOPIC_PREFIX = 'part/';
 const RECONNECT_DELAY_MS = 1000;
 
 type Decoder = (raw: unknown) => unknown;
-type Callback = (frame: unknown) => void;
+type Callback = (frame: unknown, tObserved: number) => void;
 
 export class DragonglassTelemetry implements Ksp {
   private readonly url: string;
@@ -69,7 +69,10 @@ export class DragonglassTelemetry implements Ksp {
     this.url = url;
   }
 
-  subscribe<T, Ops>(topic: Topic<T, Ops>, cb: (frame: T) => void): () => void {
+  subscribe<T, Ops>(
+    topic: Topic<T, Ops>,
+    cb: (frame: T, tObserved: number) => void,
+  ): () => void {
     let set = this.subs.get(topic.name);
     const firstSubscriber = !set;
     if (!set) {
@@ -85,8 +88,12 @@ export class DragonglassTelemetry implements Ksp {
 
     // If we've already received a frame for this topic, fire it
     // immediately so late-mounting consumers don't lag a tick behind.
+    // Re-stamp `tObserved` to "now" so any downstream interpolator
+    // treats the cached value as current — projecting forward from a
+    // stale arrival time would misbehave for any value with non-zero
+    // velocity.
     const last = this.lastByTopic.get(topic.name);
-    if (last !== undefined) (cb as Callback)(last);
+    if (last !== undefined) (cb as Callback)(last, performance.now() / 1000);
 
     return () => {
       const bucket = this.subs.get(topic.name);
@@ -224,7 +231,7 @@ export class DragonglassTelemetry implements Ksp {
   private handleMessage(ev: MessageEvent): void {
     if (typeof ev.data !== 'string') return;
 
-    let parsed: { topic?: unknown; data?: unknown };
+    let parsed: { topic?: unknown; data?: unknown; t_server?: unknown };
     try {
       parsed = JSON.parse(ev.data);
     } catch (err) {
@@ -243,11 +250,20 @@ export class DragonglassTelemetry implements Ksp {
       : this.decoders[topic];
     if (!decode) return;  // Unknown topic: forward-compat, drop silently.
 
+    // Local-clock timestamp at arrival. The wire's `t_server` is in
+    // server-clock units (Unity's `Time.realtimeSinceStartup`); until
+    // we estimate the server↔client offset, arrival time is the best
+    // local-clock proxy for "when this observation happened". The
+    // envelope's `t_server` is parsed off the wire (so the field is
+    // formally part of the protocol) but unused here today.
+    void parsed.t_server;
+    const tObserved = performance.now() / 1000;
+
     const frame = decode(parsed.data);
     this.lastByTopic.set(topic, frame);
     const bucket = this.subs.get(topic);
     if (bucket) {
-      for (const cb of bucket) cb(frame);
+      for (const cb of bucket) cb(frame, tObserved);
     }
   }
 }
