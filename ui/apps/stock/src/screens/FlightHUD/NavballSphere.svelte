@@ -5,7 +5,7 @@
   import { drawNavballTexture } from './navball-textures';
   import OrbitalMarkers from './OrbitalMarkers.svelte';
 
-  const predictor = useSmoothedOrientation();
+  const orientation = useSmoothedOrientation();
   const smoothed = new THREE.Quaternion();
 
   let groupRef: THREE.Group | undefined = $state();
@@ -23,7 +23,7 @@
 
   useTask(() => {
     if (!groupRef) return;
-    predictor.sample(performance.now(), smoothed);
+    orientation.sample(performance.now() / 1000, smoothed);
     groupRef.quaternion.copy(smoothed).invert();
   });
 </script>

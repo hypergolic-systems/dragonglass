@@ -13,11 +13,23 @@ import { onDestroy } from 'svelte';
 import { getKsp } from './context';
 import { PawTopic, PartTopic } from '../core/topics';
 import type { PartData } from '../core/part-data';
+import { Smoothed, vec2Kinematic, type Vec2 } from '../smoothing';
 
 export interface PartActionWindow {
   readonly persistentId: string;
   /** Live telemetry for this part. `null` until the first frame. */
   data: PartData | null;
+  /**
+   * Smoothed CSS-px screen position of the part anchor. Updated at
+   * RAF rate by the shared smoothing registry — values converge
+   * toward the wire's `data.screen.x/y` with finite-difference
+   * velocity extrapolation, so the leader line stays glued to the
+   * part instead of stepping at the 10 Hz wire cadence.
+   *
+   * Layout consumers should read x/y from this; the truthful
+   * "is the part on screen?" flag still lives on `data.screen.visible`.
+   */
+  readonly screenSmoothed: Vec2;
   /**
    * Pilot-dragged offset in CSS px from the anchor (the part's
    * current screen position). `null` means "not dragged yet — follow
@@ -29,7 +41,7 @@ export interface PartActionWindow {
 }
 
 interface InternalPaw extends PartActionWindow {
-  /** Unsubscribes from PartTopic(persistentId). */
+  /** Unsubscribes from PartTopic + the smoothed-position subscription. */
   unsubscribe: () => void;
 }
 
@@ -98,9 +110,21 @@ export function usePartActionWindows(): PartActionWindowOps {
     // thus the server) to spin up the per-part feed. No explicit
     // handshake — the subscribe-on-the-wire signal is driven by the
     // 0 → 1 transition of the callback set, see DragonglassTelemetry.
+    //
+    // One smoother per PAW. FD velocity because the wire doesn't
+    // carry a screen-velocity field (the screen pos is a projection
+    // of the part's 3D world position, computed server-side per
+    // tick — there's no derivative on the wire). The smoother
+    // registers itself with the shared RAF on first subscriber and
+    // unregisters on the last, so a closed PAW costs zero per frame.
+    const screenSmoother = new Smoothed<Vec2>(vec2Kinematic, {
+      velocity: 'fd',
+      tauSec: 0.1,
+    });
     const seed: InternalPaw = {
       persistentId,
       data: null,
+      screenSmoothed: { x: 0, y: 0 },
       pin: null,
       z: ++zCounter,
       unsubscribe: () => {},
@@ -109,7 +133,7 @@ export function usePartActionWindows(): PartActionWindowOps {
     // mutation goes through Svelte's reactive proxy — writing to the
     // captured `seed` reference directly would bypass the proxy and
     // the template would never re-render.
-    seed.unsubscribe = telemetry.subscribe(PartTopic(persistentId), (frame) => {
+    const unsubPart = telemetry.subscribe(PartTopic(persistentId), (frame, tObserved) => {
       const w = windows.find((x) => x.persistentId === persistentId);
       if (!w) return;
       w.data = {
@@ -119,7 +143,29 @@ export function usePartActionWindows(): PartActionWindowOps {
         resources: frame.resources,
         modules: frame.modules,
       };
+      // Only feed observations while the projection is meaningful;
+      // off-screen frames carry stale or sentinel coordinates.
+      if (frame.screen?.visible) {
+        screenSmoother.observe(
+          { x: frame.screen.x, y: frame.screen.y },
+          tObserved,
+        );
+      }
     });
+    // Push smoothed values into the reactive `screenSmoothed`. Per-
+    // field assignment so Svelte's `$state` proxy fires reactivity
+    // without a per-tick allocation; the smoother's callback buffer
+    // is internal and would not be tracked across ticks anyway.
+    const unsubSmoothed = screenSmoother.subscribe((pos) => {
+      const w = windows.find((x) => x.persistentId === persistentId);
+      if (!w) return;
+      w.screenSmoothed.x = pos.x;
+      w.screenSmoothed.y = pos.y;
+    });
+    seed.unsubscribe = () => {
+      unsubPart();
+      unsubSmoothed();
+    };
     windows.push(seed);
   });
 
