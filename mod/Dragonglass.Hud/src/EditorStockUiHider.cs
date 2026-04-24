@@ -4,12 +4,15 @@
 // in Flight we hide instruments, in the editor we hide parts panels
 // and (eventually) staging.
 //
-// Postfix-on-Start pattern: Harmony runs the postfix synchronously
-// right after stock's Start, before the first Unity frame is
-// rendered. SetActive(false) at that point means the panel is never
-// visible, and its Update loop stops — no CPU cost for a UI we don't
-// display.
+// Deferred-SetActive pattern: we postfix EditorPanels.Awake but
+// defer SetActive(false) by one frame. InventoryPanelController
+// lives under partsEditor and hasn't had its Awake yet when our
+// postfix fires — deactivating immediately prevents its Awake from
+// running, leaving the stock singleton InventoryPanelController.Instance
+// null. UIPartActionControllerInventory.UpdateCursorOverPAWs reads
+// that Instance every frame without a null-check, NREing continuously.
 
+using System.Collections;
 using HarmonyLib;
 using KSP.UI;
 using KSP.UI.Screens;
@@ -42,10 +45,17 @@ namespace Dragonglass.Hud
             private static void Postfix(EditorPanels __instance)
             {
                 if (__instance == null) return;
-                HideTransition(__instance.partsEditor, "partsEditor");
-                HideTransition(__instance.partsEditorModes, "partsEditorModes");
-                HideTransition(__instance.partcategorizerModes, "partcategorizerModes");
-                HideTransition(__instance.searchField, "searchField");
+                __instance.StartCoroutine(HideAfterChildAwakes(__instance));
+            }
+
+            private static IEnumerator HideAfterChildAwakes(EditorPanels panels)
+            {
+                yield return null;
+                if (panels == null) yield break;
+                HideTransition(panels.partsEditor, "partsEditor");
+                HideTransition(panels.partsEditorModes, "partsEditorModes");
+                HideTransition(panels.partcategorizerModes, "partcategorizerModes");
+                HideTransition(panels.searchField, "searchField");
             }
 
             private static void HideTransition(UIPanelTransition t, string label)
