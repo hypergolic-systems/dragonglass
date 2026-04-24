@@ -61,8 +61,12 @@
 
   const offset = $derived(paw.pin ?? DEFAULT_OFFSET);
 
-  const anchor = $derived(paw.data?.screen ?? null);
-  const anchorVisible = $derived(anchor !== null && anchor.visible);
+  // Layout reads x/y from the PAW's smoothed screen position
+  // (RAF-rate convergence on the 10 Hz wire data) so the leader and
+  // panel track the part fluidly. The visibility flag still comes
+  // from the raw frame — it's a discrete "is this part on screen?"
+  // signal and not something to interpolate.
+  const screenVisible = $derived(paw.data?.screen?.visible === true);
 
   // Panel position. When the anchor is off-screen we freeze at the
   // last known placement — better than snapping to (0, 0) while the
@@ -70,8 +74,8 @@
   // `$derived` are forbidden in Svelte 5) and read as the fallback.
   let frozen = $state<{ x: number; y: number } | null>(null);
   const live = $derived(
-    anchorVisible && anchor
-      ? { x: anchor.x + offset.dx, y: anchor.y + offset.dy }
+    screenVisible
+      ? { x: paw.screenSmoothed.x + offset.dx, y: paw.screenSmoothed.y + offset.dy }
       : null,
   );
   $effect(() => {
@@ -211,13 +215,15 @@
   let panelHeight = $state(0);
 
   const leader = $derived.by(() => {
-    if (!anchorVisible || !anchor || panelHeight <= 0) return null;
+    if (!screenVisible || panelHeight <= 0) return null;
+    const ax = paw.screenSmoothed.x;
+    const ay = paw.screenSmoothed.y;
     const px = panelPos.x;
     const py = panelPos.y;
-    const seamY = anchor.y < py + panelHeight / 2 ? py : py + panelHeight;
-    const attachX = Math.max(px + 10, Math.min(px + PANEL_WIDTH - 10, anchor.x));
-    const dy = seamY - anchor.y;
-    const dx = attachX - anchor.x;
+    const seamY = ay < py + panelHeight / 2 ? py : py + panelHeight;
+    const attachX = Math.max(px + 10, Math.min(px + PANEL_WIDTH - 10, ax));
+    const dy = seamY - ay;
+    const dx = attachX - ax;
     const dirX = Math.sign(dx) || 1;
     const dirY = Math.sign(dy) || 1;
     const absDx = Math.abs(dx);
@@ -227,17 +233,17 @@
     if (absDy <= absDx) {
       // 45° diagonal covers the full vertical gap; horizontal
       // segment bridges the remainder to the attach column.
-      ex = anchor.x + dirX * absDy;
+      ex = ax + dirX * absDy;
       ey = seamY;
     } else {
       // 45° diagonal covers the full horizontal gap; vertical
       // segment closes to the seam line.
       ex = attachX;
-      ey = anchor.y + dirY * absDx;
+      ey = ay + dirY * absDx;
     }
     return {
-      ax: anchor.x,
-      ay: anchor.y,
+      ax,
+      ay,
       ex,
       ey,
       mx: attachX,
@@ -249,7 +255,7 @@
 <!-- Anchor layer: crosshair + leader line share a viewport-wide SVG so
      coordinates read directly in CSS px. Pointer-events off so the
      overlay never steals clicks from the HUD or the panel. -->
-{#if anchorVisible && anchor && leader}
+{#if screenVisible && leader}
   <svg class="paw-anchor" aria-hidden="true" style="z-index: {paw.z - 1}">
     <path
       class="paw-anchor__leader"
@@ -271,7 +277,7 @@
 <section
   class="paw"
   class:paw--dragging={dragging}
-  class:paw--detached={!anchorVisible}
+  class:paw--detached={!screenVisible}
   style="left: {panelPos.x}px; top: {panelPos.y}px; z-index: {paw.z}"
   bind:offsetHeight={panelHeight}
   aria-label={paw.data?.name ?? 'Part'}
