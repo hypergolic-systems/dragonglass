@@ -1,3 +1,5 @@
+<script lang="ts"></script>
+
 <div class="workbench">Dragonglass Workbench</div>
 
 <style>

@@ -14,8 +14,12 @@ ui-dev-workbench:
 ui-build:
     cd ui && npm run build
 
+# Project-graph TS check (root `npm run typecheck` is `tsc -b`) plus
+# svelte-check on each app workspace — the latter is what catches
+# Svelte template errors and stricter checks like unused class fields,
+# both of which `tsc -b` silently skips.
 ui-typecheck:
-    cd ui && npm run typecheck
+    cd ui && npm run typecheck && npm run typecheck --workspaces --if-present
 
 # --- Rust (crates/) ---
 
