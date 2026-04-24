@@ -40,8 +40,10 @@ const SIM_GAME: GameData = {
   timewarp: 1,
 };
 
+type Callback = (frame: any, tObserved: number) => void;
+
 export class SimulatedKsp implements Ksp {
-  private subs = new Map<string, Set<(frame: any) => void>>();
+  private subs = new Map<string, Set<Callback>>();
   private sim = new FlightSimulation();
   private raf = 0;
   private last = 0;
@@ -60,27 +62,33 @@ export class SimulatedKsp implements Ksp {
   // the most recent frame immediately. Map<persistentId, PartData>.
   private lastParts = new Map<string, PartData>();
 
-  subscribe<T, Ops>(topic: Topic<T, Ops>, cb: (frame: T) => void): () => void {
+  subscribe<T, Ops>(
+    topic: Topic<T, Ops>,
+    cb: (frame: T, tObserved: number) => void,
+  ): () => void {
     let set = this.subs.get(topic.name);
     if (!set) {
       set = new Set();
       this.subs.set(topic.name, set);
     }
-    set.add(cb as (frame: any) => void);
+    set.add(cb as Callback);
 
     // Fire immediately for topics with a fixed simulated value so
-    // late-mounting components don't need to wait for a tick.
+    // late-mounting components don't need to wait for a tick. Stamp
+    // with current local time — same posture as the live transport's
+    // snapshot replay.
+    const t = performance.now() / 1000;
     if (topic.name === AssemblyTopic.name) {
-      (cb as (frame: any) => void)(ASSEMBLY);
+      (cb as Callback)(ASSEMBLY, t);
     } else if (topic.name === GameTopic.name) {
-      (cb as (frame: any) => void)(SIM_GAME);
+      (cb as Callback)(SIM_GAME, t);
     } else if (topic.name === StageTopic.name) {
       const stage = SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA;
-      (cb as (frame: any) => void)(stage);
+      (cb as Callback)(stage, t);
     } else if (topic.name === PartCatalogTopic.name) {
-      (cb as (frame: any) => void)(SIM_PART_CATALOG);
+      (cb as Callback)(SIM_PART_CATALOG, t);
     } else if (topic.name === EngineTopic.name) {
-      (cb as (frame: any) => void)(this.lastEngines);
+      (cb as Callback)(this.lastEngines, t);
     } else if (topic.name.startsWith(PART_TOPIC_PREFIX)) {
       // PartTopic(id) — prime the cache so the first subscriber on a
       // never-before-seen part gets a frame this tick rather than
@@ -90,11 +98,11 @@ export class SimulatedKsp implements Ksp {
       const drained = SIM_GAME.scene !== 'EDITOR';
       const cached = this.lastParts.get(partId) ?? buildPart(partId, this.elapsed, drained);
       this.lastParts.set(partId, cached);
-      (cb as (frame: any) => void)(cached);
+      (cb as Callback)(cached, t);
     }
 
     return () => {
-      set!.delete(cb as (frame: any) => void);
+      set!.delete(cb as Callback);
       if (set!.size === 0) this.subs.delete(topic.name);
     };
   }
@@ -166,7 +174,8 @@ export class SimulatedKsp implements Ksp {
   private dispatch<T, Ops>(topic: Topic<T, Ops>, data: T): void {
     const set = this.subs.get(topic.name);
     if (set) {
-      for (const cb of set) cb(data);
+      const t = performance.now() / 1000;
+      for (const cb of set) cb(data, t);
     }
   }
 
@@ -244,6 +253,7 @@ export class SimulatedKsp implements Ksp {
       // `setResource` writes to stick across ticks rather than being
       // clobbered by the drain model every frame.
       const editor = SIM_GAME.scene === 'EDITOR';
+      const tObserved = now / 1000;
       for (const name of this.subs.keys()) {
         if (!name.startsWith(PART_TOPIC_PREFIX)) continue;
         const partId = name.slice(PART_TOPIC_PREFIX.length);
@@ -254,7 +264,7 @@ export class SimulatedKsp implements Ksp {
           : built;
         this.lastParts.set(partId, frame);
         const bucket = this.subs.get(name);
-        if (bucket) for (const cb of bucket) cb(frame);
+        if (bucket) for (const cb of bucket) cb(frame, tObserved);
       }
 
       this.raf = requestAnimationFrame(tick);
