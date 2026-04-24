@@ -389,9 +389,73 @@
     pointer-events: auto;
   }
 
+  /* CRT texture overlay — stacks a 3 px horizontal scanline and a
+     very faint hairline grid over the whole panel interior. Both are
+     SVG-free via repeating linear / radial gradients so they render
+     at any DPR without bitmap scaling. `::after` so the overlay sits
+     above the background but below content (content is at default
+     z / position: relative via a few specific selectors below); the
+     corner ticks keep position: absolute and sit above it. */
+  .paw::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      /* horizontal phosphor scanlines, 3 px period */
+      repeating-linear-gradient(
+        to bottom,
+        rgba(126, 245, 184, 0.025) 0,
+        rgba(126, 245, 184, 0.025) 1px,
+        transparent 1px,
+        transparent 3px
+      ),
+      /* vertical hairline grid, 16 px period */
+      repeating-linear-gradient(
+        to right,
+        rgba(126, 245, 184, 0.018) 0,
+        rgba(126, 245, 184, 0.018) 1px,
+        transparent 1px,
+        transparent 16px
+      );
+    mix-blend-mode: screen;
+    z-index: 0;
+  }
+
+  /* Keep every functional child above the CRT overlay. Content was
+     previously layout-neutral (no stacking context), so the overlay
+     would cover values and buttons. Pinning these relative puts them
+     on top; ::after stays at z:0 behind them. */
+  .paw > * {
+    position: relative;
+    z-index: 1;
+  }
+  /* Corner ticks are absolute and need to float above the overlay
+     too so the crop-marks remain visible. */
+  .paw__tick {
+    z-index: 2;
+  }
+
   .paw--detached {
     border-color: var(--line-bright);
     box-shadow: inset 0 0 0 1px rgba(90, 176, 255, 0.04);
+  }
+  .paw--detached::after {
+    background:
+      repeating-linear-gradient(
+        to bottom,
+        rgba(90, 176, 255, 0.025) 0,
+        rgba(90, 176, 255, 0.025) 1px,
+        transparent 1px,
+        transparent 3px
+      ),
+      repeating-linear-gradient(
+        to right,
+        rgba(90, 176, 255, 0.018) 0,
+        rgba(90, 176, 255, 0.018) 1px,
+        transparent 1px,
+        transparent 16px
+      );
   }
 
   @keyframes pawIn {
@@ -490,13 +554,17 @@
     min-width: 0;
     margin: 0;
     font-family: var(--font-display);
-    font-size: 13px;
+    /* Bumped up from 13px. Unica One is tall and wide — it carries
+       the display role and was under-weighted at 13px next to the
+       Azeret-mono body. At 15px the part name reads as the panel's
+       titular callsign rather than a row label. */
+    font-size: 15px;
     font-weight: normal;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--accent);
-    text-shadow: 0 0 6px var(--accent-glow);
-    line-height: 1.15;
+    text-shadow: 0 0 6px var(--accent-glow), 0 0 12px rgba(126, 245, 184, 0.18);
+    line-height: 1.12;
     /* Two-line clamp so long KSP names ("Rockomax X200-32 Fuel Tank")
        wrap into the titlebar instead of pushing the close button
        off-panel. Beyond two lines, the tail is clipped — names at
@@ -506,6 +574,43 @@
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  /* Mission-strip divider under the header: a short accent segment
+     flush left, then a long hairline to the right edge. Reads as a
+     station-ident underscore tying the title to the panel number. */
+  .paw__header::after {
+    content: '';
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: -1px;
+    height: 1px;
+    background:
+      linear-gradient(
+        to right,
+        var(--accent) 0,
+        var(--accent) 22px,
+        transparent 22px,
+        transparent 26px,
+        rgba(126, 245, 184, 0.22) 26px,
+        rgba(126, 245, 184, 0.22) 100%
+      );
+    box-shadow: 0 0 3px var(--accent-glow);
+    pointer-events: none;
+  }
+  .paw--detached .paw__header::after {
+    background:
+      linear-gradient(
+        to right,
+        var(--info) 0,
+        var(--info) 22px,
+        transparent 22px,
+        transparent 26px,
+        rgba(90, 176, 255, 0.22) 26px,
+        rgba(90, 176, 255, 0.22) 100%
+      );
+    box-shadow: 0 0 3px var(--info-glow);
   }
 
   /* ---------------------------------------------------------
