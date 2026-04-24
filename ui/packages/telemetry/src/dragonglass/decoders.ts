@@ -19,6 +19,7 @@
 
 import { Quaternion, Vector3 } from 'three';
 import type { ClockData } from '../core/clock-data';
+import type { ConfigData } from '../core/config-data';
 import type { GameData } from '../core/game-data';
 import type { FlightData, SpeedDisplayMode } from '../core/flight-data';
 import type {
@@ -171,6 +172,17 @@ export function decodeClock(raw: unknown): ClockData {
   clockScratch.ut = a[0];
   clockScratch.met = a[1];
   return clockScratch as ClockData;
+}
+
+// Config wire payload is the raw config.json contents — the plugin
+// never parses it, and the UI deserialises opportunistically against
+// its own schema. Decoder is a pass-through: if the top-level value
+// is an object, hand it through; anything else (array, primitive,
+// null) degrades to `{}` so consumers can rely on object access.
+export function decodeConfig(raw: unknown): ConfigData {
+  return (raw !== null && typeof raw === 'object' && !Array.isArray(raw))
+    ? (raw as ConfigData)
+    : {};
 }
 
 export function decodeGame(raw: unknown): GameData {

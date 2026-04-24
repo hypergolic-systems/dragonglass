@@ -4,15 +4,28 @@
   import { DragonglassTelemetry } from '@dragonglass/telemetry/dragonglass';
   import {
     GameTopic,
+    ConfigTopic,
     CAP_FLIGHT_UI,
     CAP_FLIGHT_PAW,
     CAP_EDITOR_PARTS,
     CAP_EDITOR_PAW,
+    type Capability,
+    type ConfigData,
     type Ksp,
   } from '@dragonglass/telemetry/core';
   import FlightHUD from './screens/FlightHUD/FlightHUD.svelte';
   import EditorHUD from './screens/EditorHUD.svelte';
   import ScenePlaceholder from './screens/ScenePlaceholder.svelte';
+
+  // Stock's view of <modDir>/config.json. Every key is optional; a
+  // missing key behaves as `true`. `editor: false` hides the whole
+  // editor HUD and also withholds the editor/* caps so stock KSP
+  // renders its own editor chrome; `paw: false` withholds the PAW
+  // caps so stock KSP PAWs stay live.
+  interface StockConfig {
+    editor?: boolean;
+    paw?: boolean;
+  }
 
   // The sidecar launches us with `?ws=ws://127.0.0.1:8787/` to attach
   // to the live KSP telemetry feed. Without the param (e.g. `just
@@ -22,19 +35,38 @@
   const ksp: Ksp = wsUrl
     ? new DragonglassTelemetry(wsUrl)
     : new SimulatedKsp();
-  // Declare which stock KSP chrome this app replaces. Deferred until
-  // `connect()` resolves because `send()` drops frames on a closed
-  // socket — no client-side queue. The plugin records the set and
-  // Harmony patches consult it from here on.
+
+  // Config arrives asynchronously: subscribe, wait for the first
+  // frame, then translate it into the capability declaration. The
+  // plugin retains the frame for snapshot-on-connect replay so this
+  // resolves in one round-trip. Reactive `$state` so conditional UI
+  // gates (editor HUD) pick up the value without explicit wiring.
+  let config: StockConfig = $state({});
+  let capsSent = false;
   ksp.connect().then(() => {
-    ksp.send(GameTopic, 'setCapabilities', [
-      CAP_FLIGHT_UI,
-      CAP_FLIGHT_PAW,
-      CAP_EDITOR_PARTS,
-      CAP_EDITOR_PAW,
-    ]);
+    ksp.subscribe(ConfigTopic, (raw: ConfigData) => {
+      config = raw as StockConfig;
+      if (capsSent) return;
+      capsSent = true;
+      ksp.send(GameTopic, 'setCapabilities', computeCaps(config));
+    });
   });
   setKsp(ksp);
+
+  // `editor: false` suppresses everything editor-scoped, including
+  // editor/paw even when `paw: true` — the UI isn't mounting an
+  // editor at all, so an editor PAW has nothing to live in.
+  function computeCaps(cfg: StockConfig): Capability[] {
+    const editorOn = cfg.editor !== false;
+    const pawOn = cfg.paw !== false;
+    const caps: Capability[] = [CAP_FLIGHT_UI];
+    if (pawOn) caps.push(CAP_FLIGHT_PAW);
+    if (editorOn) {
+      caps.push(CAP_EDITOR_PARTS);
+      if (pawOn) caps.push(CAP_EDITOR_PAW);
+    }
+    return caps;
+  }
 
   const game = useGame();
 
@@ -51,7 +83,9 @@
 {#if game.scene === 'FLIGHT'}
   <FlightHUD />
 {:else if game.scene === 'EDITOR'}
-  <EditorHUD scene={game.scene} />
+  {#if config.editor !== false}
+    <EditorHUD scene={game.scene} />
+  {/if}
 {:else}
   <ScenePlaceholder scene={game.scene} />
 {/if}

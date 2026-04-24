@@ -2,6 +2,7 @@ import type { Topic, Ksp, OpArgs } from '../core/ksp';
 import {
   FlightTopic,
   GameTopic,
+  ConfigTopic,
   AssemblyTopic,
   EngineTopic,
   PawTopic,
@@ -82,6 +83,10 @@ export class SimulatedKsp implements Ksp {
       (cb as Callback)(ASSEMBLY, t);
     } else if (topic.name === GameTopic.name) {
       (cb as Callback)(SIM_GAME, t);
+    } else if (topic.name === ConfigTopic.name) {
+      // Dev mode uses an empty config — matches the plugin's default
+      // when <modDir>/config.json is missing.
+      (cb as Callback)({}, t);
     } else if (topic.name === StageTopic.name) {
       const stage = SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA;
       (cb as Callback)(stage, t);
