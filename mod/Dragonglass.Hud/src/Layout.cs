@@ -49,6 +49,15 @@ namespace Dragonglass.Hud
         /// "new surface, rebind external texture".
         /// </summary>
         public const int OffIoSurfaceGen = 60;
+        /// <summary>
+        /// u32 flag written by the sidecar when a CEF editable element
+        /// gains or loses focus (0 = no editable focused, 1 = focused).
+        /// The plugin polls this each frame and toggles a
+        /// <c>ControlTypes.KEYBOARDINPUT</c> lock so KSP shortcut keys
+        /// don't fire while the user is typing into a web input.
+        /// Outside the seqlock — plain atomic load is sufficient.
+        /// </summary>
+        public const int OffCefWantsKeyboard = 64;
 
         // --- Input event ring buffer (v3, plugin → sidecar) ---
 
@@ -104,6 +113,35 @@ namespace Dragonglass.Hud
         /// zero-pads any unused tail bytes.
         /// </summary>
         public const byte InputNavigateChunk = 7;
+        /// <summary>
+        /// Raw key-down event. <c>x</c> is the Windows virtual-key
+        /// code (VK_BACK = 8, VK_ESCAPE = 27, VK_LEFT = 37, …);
+        /// <c>y</c> is a packed modifier bitmask (see
+        /// <see cref="KeyModShift"/> etc.); <c>extra</c> unused.
+        /// Mapped to CEF <c>KEYEVENT_RAWKEYDOWN</c> — drives DOM
+        /// <c>keydown</c>.
+        /// </summary>
+        public const byte InputKeyDown = 8;
+        /// <summary>
+        /// Raw key-up event. Same slot encoding as
+        /// <see cref="InputKeyDown"/>. Mapped to CEF
+        /// <c>KEYEVENT_KEYUP</c>.
+        /// </summary>
+        public const byte InputKeyUp = 9;
+        /// <summary>
+        /// Typed character forwarded to CEF as KEYEVENT_CHAR. The low
+        /// 16 bits of <c>extra</c> carry a single UTF-16 code unit;
+        /// x / y / button are unused. Emitted alongside
+        /// <see cref="InputKeyDown"/> when the press produces text.
+        /// </summary>
+        public const byte InputKeyChar = 10;
+
+        // Key-event modifier bitmask (packed into `y` on
+        // InputKeyDown / InputKeyUp).
+        public const int KeyModShift = 1 << 0;
+        public const int KeyModControl = 1 << 1;
+        public const int KeyModAlt = 1 << 2;
+        public const int KeyModMeta = 1 << 3;
 
         /// <summary>
         /// Hard cap on the URL byte length a single InputNavigate

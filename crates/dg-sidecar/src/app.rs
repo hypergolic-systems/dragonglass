@@ -184,6 +184,28 @@ wrap_render_handler! {
             }
         }
 
+        /// Focus-tracking hook. CEF calls this whenever a focusable
+        /// editable element gains or loses focus in the page —
+        /// `input_mode != NONE` means "an editable just took focus"
+        /// (what CEF calls "virtual keyboard requested" for the OSR /
+        /// mobile path); `input_mode == NONE` means "focus left the
+        /// editable". We reflect that into a SHM flag the plugin
+        /// polls each frame so it can apply / drop a KSP
+        /// `ControlTypes.KEYBOARDINPUT` `InputLockManager` lock —
+        /// otherwise KSP shortcut keys fire while the user is typing
+        /// into a web input.
+        fn on_virtual_keyboard_requested(
+            &self,
+            _browser: Option<&mut Browser>,
+            input_mode: TextInputMode,
+        ) {
+            let wants = input_mode != TextInputMode::NONE;
+            eprintln!("on_virtual_keyboard_requested: wants={wants} input_mode={input_mode:?}");
+            if let Ok(mut writer) = self.handler.writer.lock() {
+                writer.write_cef_wants_keyboard(wants);
+            }
+        }
+
         /// Report the device scale factor so CEF exposes it to the
         /// page as `window.devicePixelRatio`. Returning 1 tells CEF
         /// we supplied valid data; 0 would make it fall back to its

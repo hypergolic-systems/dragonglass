@@ -21,11 +21,11 @@ use anyhow::{bail, Context, Result};
 use memmap2::{Mmap, MmapMut};
 
 use crate::layout::{
-    FORMAT_BGRA8_PREMUL, HEADER_SIZE, INPUT_RING_CAPACITY, INPUT_SLOT_SIZE, MAGIC, OFF_FORMAT,
-    OFF_FRAME_ID, OFF_HEADER_SIZE, OFF_HEIGHT, OFF_INPUT_READ_IDX, OFF_INPUT_RING,
-    OFF_INPUT_WRITE_IDX, OFF_IO_SURFACE_GEN, OFF_IO_SURFACE_ID, OFF_MAGIC, OFF_SEQ, OFF_STRIDE,
-    OFF_VERSION, OFF_WIDTH, SHM_FILE_SIZE, SLOT_OFF_BUTTON, SLOT_OFF_EXTRA, SLOT_OFF_TYPE,
-    SLOT_OFF_X, SLOT_OFF_Y, VERSION,
+    FORMAT_BGRA8_PREMUL, HEADER_SIZE, INPUT_RING_CAPACITY, INPUT_SLOT_SIZE, MAGIC,
+    OFF_CEF_WANTS_KEYBOARD, OFF_FORMAT, OFF_FRAME_ID, OFF_HEADER_SIZE, OFF_HEIGHT,
+    OFF_INPUT_READ_IDX, OFF_INPUT_RING, OFF_INPUT_WRITE_IDX, OFF_IO_SURFACE_GEN, OFF_IO_SURFACE_ID,
+    OFF_MAGIC, OFF_SEQ, OFF_STRIDE, OFF_VERSION, OFF_WIDTH, SHM_FILE_SIZE, SLOT_OFF_BUTTON,
+    SLOT_OFF_EXTRA, SLOT_OFF_TYPE, SLOT_OFF_X, SLOT_OFF_Y, VERSION,
 };
 
 /// Default location for the shared file on the current OS.
@@ -206,6 +206,20 @@ impl ShmWriter {
     pub fn flush(&mut self) -> Result<()> {
         self.mmap.flush()?;
         Ok(())
+    }
+
+    /// Publish whether a CEF editable element is currently focused. The
+    /// plugin reads this each frame and toggles a
+    /// `ControlTypes.KEYBOARDINPUT` `InputLockManager` lock so KSP
+    /// shortcut keys don't fire while the user is typing into a web
+    /// input. Lives outside the frame seqlock — plain release-store is
+    /// enough.
+    pub fn write_cef_wants_keyboard(&mut self, wants: bool) {
+        unsafe {
+            let ptr = self.base.add(OFF_CEF_WANTS_KEYBOARD) as *mut u32;
+            std::sync::atomic::AtomicU32::from_ptr(ptr)
+                .store(if wants { 1 } else { 0 }, Ordering::Release);
+        }
     }
 }
 

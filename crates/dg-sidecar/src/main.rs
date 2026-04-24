@@ -139,9 +139,68 @@ fn start_static_server(root_dir: &Path) -> Result<String> {
 /// and routes to an element off-screen (or nothing at all).
 fn inject_input_event(host: &cef::BrowserHost, evt: InputEvent, device_scale: f32) {
     use dg_shm::layout::{
-        INPUT_BTN_LEFT, INPUT_BTN_MIDDLE, INPUT_BTN_RIGHT, INPUT_MOUSE_DOWN, INPUT_MOUSE_MOVE,
-        INPUT_MOUSE_UP, INPUT_MOUSE_WHEEL,
+        INPUT_BTN_LEFT, INPUT_BTN_MIDDLE, INPUT_BTN_RIGHT, INPUT_KEY_CHAR, INPUT_KEY_DOWN,
+        INPUT_KEY_UP, INPUT_MOUSE_DOWN, INPUT_MOUSE_MOVE, INPUT_MOUSE_UP, INPUT_MOUSE_WHEEL,
+        KEY_MOD_ALT, KEY_MOD_CONTROL, KEY_MOD_META, KEY_MOD_SHIFT,
     };
+
+    // Keyboard events. The plugin emits KEYDOWN (with VK + modifiers),
+    // optionally followed by CHAR (with the typed code unit), then
+    // KEYUP on release — matching CEF's RAWKEYDOWN → CHAR → KEYUP
+    // sequence. We forward each slot as one CEF call; CEF routes them
+    // to the focused editable / DOM handlers.
+    //
+    // CEF's `cef_event_flags_t` bit values — the cef Rust crate doesn't
+    // expose named constants for these in 146, and they've been stable
+    // in CEF for years.
+    const EVENTFLAG_SHIFT_DOWN: u32 = 1 << 1;
+    const EVENTFLAG_CONTROL_DOWN: u32 = 1 << 2;
+    const EVENTFLAG_ALT_DOWN: u32 = 1 << 3;
+    const EVENTFLAG_COMMAND_DOWN: u32 = 1 << 7;
+    if evt.kind == INPUT_KEY_DOWN || evt.kind == INPUT_KEY_UP {
+        let mut cef_mods: u32 = 0;
+        if evt.y & KEY_MOD_SHIFT != 0 {
+            cef_mods |= EVENTFLAG_SHIFT_DOWN;
+        }
+        if evt.y & KEY_MOD_CONTROL != 0 {
+            cef_mods |= EVENTFLAG_CONTROL_DOWN;
+        }
+        if evt.y & KEY_MOD_ALT != 0 {
+            cef_mods |= EVENTFLAG_ALT_DOWN;
+        }
+        if evt.y & KEY_MOD_META != 0 {
+            cef_mods |= EVENTFLAG_COMMAND_DOWN;
+        }
+        let key_event = cef::KeyEvent {
+            type_: if evt.kind == INPUT_KEY_DOWN {
+                cef::KeyEventType::RAWKEYDOWN
+            } else {
+                cef::KeyEventType::KEYUP
+            },
+            modifiers: cef_mods,
+            windows_key_code: evt.x,
+            native_key_code: evt.x,
+            focus_on_editable_field: 1,
+            ..Default::default()
+        };
+        host.send_key_event(Some(&key_event));
+        return;
+    }
+    if evt.kind == INPUT_KEY_CHAR {
+        // UTF-16 code unit in the low 16 bits of `extra`. Typed char
+        // events don't need key-code routing or modifier hints —
+        // Unity's Event.character / Input.inputString has already
+        // resolved layout / shift / IME into the final character.
+        let key_event = cef::KeyEvent {
+            type_: cef::KeyEventType::CHAR,
+            character: (evt.extra as u32 & 0xFFFF) as u16,
+            unmodified_character: (evt.extra as u32 & 0xFFFF) as u16,
+            focus_on_editable_field: 1,
+            ..Default::default()
+        };
+        host.send_key_event(Some(&key_event));
+        return;
+    }
 
     let scale = device_scale.max(0.1);
     let dip_x = (evt.x as f32 / scale).round() as i32;

@@ -66,7 +66,8 @@ are naturally aligned.
 |   40   | 16   | _reserved_         | zero-filled                                                     |
 |   56   |  4   | `io_surface_id`    | global `IOSurfaceID` for the current canvas surface             |
 |   60   |  4   | `io_surface_gen`   | bumped on each commit; plugin re-blits when this changes        |
-|   64   | 64   | _reserved_         | zero-filled; reserved for future header fields                  |
+|   64   |  4   | `cef_wants_keyboard` | `u32` — sidecar writes `1` when a CEF editable element is focused, `0` otherwise. Plugin polls to drive `InputLockManager`. Outside the seqlock. |
+|   68   | 60   | _reserved_         | zero-filled; reserved for future header fields                  |
 
 ### Seqlock protocol
 
@@ -120,12 +121,12 @@ time (`idx % INPUT_RING_CAPACITY`).
 
 | Offset | Size | Field    | Meaning                                         |
 |-------:|-----:|----------|-------------------------------------------------|
-|    0   |  1   | `type`   | `1`=MouseMove, `2`=MouseDown, `3`=MouseUp, `4`=MouseWheel, `5`=Resize, `6`=Navigate, `7`=NavigateChunk |
+|    0   |  1   | `type`   | `1`=MouseMove, `2`=MouseDown, `3`=MouseUp, `4`=MouseWheel, `5`=Resize, `6`=Navigate, `7`=NavigateChunk, `8`=KeyDown, `9`=KeyUp, `10`=KeyChar |
 |    1   |  1   | `button` | `0`=None, `1`=Left, `2`=Right, `3`=Middle       |
 |    2   |  2   | _pad_    | zero-filled                                     |
-|    4   |  4   | `x`      | CEF viewport x (i32) — width on Resize, URL bytes [0..4] on NavigateChunk |
-|    8   |  4   | `y`      | CEF viewport y (i32) — height on Resize, URL bytes [4..8] on NavigateChunk |
-|   12   |  4   | `extra`  | wheel delta (MouseWheel), URL byte length (Navigate), URL bytes [8..12] (NavigateChunk), or 0 |
+|    4   |  4   | `x`      | CEF viewport x (i32) — width on Resize, URL bytes [0..4] on NavigateChunk, Windows VK on KeyDown/KeyUp, unused on KeyChar |
+|    8   |  4   | `y`      | CEF viewport y (i32) — height on Resize, URL bytes [4..8] on NavigateChunk, modifier bitmask on KeyDown/KeyUp (bit0 shift, bit1 ctrl, bit2 alt, bit3 meta), unused on KeyChar |
+|   12   |  4   | `extra`  | wheel delta (MouseWheel), URL byte length (Navigate), URL bytes [8..12] (NavigateChunk), UTF-16 code unit in low 16 bits (KeyChar), or 0 |
 
 ### Multi-slot navigate messages
 
@@ -147,6 +148,46 @@ and bumps `write_idx` once at the end, so the consumer never observes
 a partial URL. The consumer carries cross-slot state (the URL byte
 accumulator) across drain calls because the producer's slot writes
 may straddle the consumer's poll interval.
+
+### Keyboard events
+
+Three event types encode a single physical keypress as CEF's three
+ordered callbacks:
+
+- `INPUT_KEY_DOWN` (`8`) → `KEYEVENT_RAWKEYDOWN`. `x` holds the
+  Windows virtual-key code (`VK_BACK = 8`, `VK_ESCAPE = 27`,
+  `VK_LEFT = 37`, …); `y` holds a packed modifier bitmask (bit 0
+  shift, bit 1 ctrl, bit 2 alt, bit 3 meta/command). Drives the web
+  `keydown` DOM event — apps rely on this for shortcut keys like
+  `/` (focus search) or Escape (dismiss).
+- `INPUT_KEY_CHAR` (`10`) → `KEYEVENT_CHAR`. `extra` holds one
+  UTF-16 code unit in its low 16 bits. Emitted immediately after
+  `INPUT_KEY_DOWN` whenever the press actually produces text, and
+  this is what writes into a focused editable. Supplementary-plane
+  characters split across two surrogate events; control chars
+  (`\b`, `\t`, `\r`, `\n`) pass through verbatim.
+- `INPUT_KEY_UP` (`9`) → `KEYEVENT_KEYUP`. Same slot encoding as
+  `INPUT_KEY_DOWN`.
+
+Unity's `Event.current` in `OnGUI` emits `KeyDown` twice per
+physical press: once with just `keyCode`, once with just
+`character`. The plugin forwards each independently, so the stream
+on the wire is `DOWN (VK)` → `CHAR (char)` → `UP (VK)` — the exact
+order CEF expects.
+
+### Keyboard-focus signaling (`OFF_CEF_WANTS_KEYBOARD`)
+
+The sidecar implements `CefRenderHandler::on_virtual_keyboard_requested`
+and writes a `u32` flag to the SHM header at byte 64 whenever a
+CEF editable element gains (`1`) or loses (`0`) focus. The plugin
+polls the flag each `Update` and mirrors it into a
+`ControlTypes.KEYBOARDINPUT` `InputLockManager` lock under the ID
+`DragonglassCefKeyboard`. While the lock is held, KSP treats every
+gameplay shortcut as "keyboard input blocked" — the same mechanism
+stock uses for its own search fields (see e.g.
+`CraftSearchFieldTextInput` in stock's `CraftSearch.cs`). The
+plugin releases the lock on addon destroy so it never leaks across
+scene unload.
 
 ### Ring protocol
 

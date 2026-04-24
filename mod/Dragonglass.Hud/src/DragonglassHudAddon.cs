@@ -59,6 +59,12 @@ namespace Dragonglass.Hud
         private Vector3 _lastMousePosition;
         private bool _hasLastMouse;
 
+        // True when <see cref="KeyboardLockId"/> is currently held via
+        // InputLockManager. Tracks the sidecar's "CEF wants keyboard"
+        // flag so we only call SetControlLock / RemoveControlLock on
+        // the edges, not every frame.
+        private bool _kbLockActive;
+
         private float _nextShmRetryTime;
         private const float ShmRetryInterval = 0.5f;
 
@@ -339,6 +345,7 @@ namespace Dragonglass.Hud
             if (_reader != null)
             {
                 SampleAndForwardMouse();
+                UpdateKeyboardLock();
                 MaybeEmitResize();
             }
 
@@ -526,6 +533,157 @@ namespace Dragonglass.Hud
             }
         }
 
+        // Toggle a `ControlTypes.KEYBOARDINPUT` KSP input lock to match
+        // the sidecar's "CEF has an editable focused" flag. Without
+        // this, KSP shortcut keys (stage, SAS, RCS, WASD trim, etc.)
+        // fire while the user is typing into a web input — the exact
+        // reason stock KSP applies the same lock to its own search
+        // fields (see `InputLockManager.SetControlLock(ControlTypes.
+        // KEYBOARDINPUT, "CraftSearchFieldTextInput")` and siblings
+        // in Assembly-CSharp). The flag flips on CEF's
+        // `on_virtual_keyboard_requested` callback, which fires on
+        // every focus/blur of an editable node.
+        private const string KeyboardLockId = "DragonglassCefKeyboard";
+
+        private void UpdateKeyboardLock()
+        {
+            bool wants = _reader.ReadCefWantsKeyboard();
+            if (wants == _kbLockActive) return;
+
+            if (wants)
+            {
+                InputLockManager.SetControlLock(ControlTypes.KEYBOARDINPUT, KeyboardLockId);
+            }
+            else
+            {
+                InputLockManager.RemoveControlLock(KeyboardLockId);
+            }
+            _kbLockActive = wants;
+        }
+
+        /// <summary>
+        /// Forward keyboard events to CEF. `OnGUI` is the only Unity
+        /// hook that gives us `Event.current.KeyDown` / `KeyUp` with
+        /// both a `keyCode` and a resolved `character` — `Update` +
+        /// `Input.GetKey` would lose the character mapping and
+        /// `Input.inputString` would lose the keyCode. Unity emits
+        /// `KeyDown` twice per press: once with just the keyCode, once
+        /// with just the character. We forward each independently as
+        /// `INPUT_KEY_DOWN` (VK + modifiers) and `INPUT_KEY_CHAR`
+        /// (UTF-16 code unit), matching CEF's RAWKEYDOWN → CHAR →
+        /// KEYUP contract.
+        ///
+        /// Forward unconditionally — CEF silently drops key events
+        /// when nothing editable is focused, so there's no harm in
+        /// always sending. The KSP-side cost of shortcut collisions
+        /// is handled by <see cref="UpdateKeyboardLock"/>.
+        /// </summary>
+        private void OnGUI()
+        {
+            if (_reader == null) return;
+            Event e = Event.current;
+            if (e == null) return;
+
+            if (e.type == EventType.KeyDown)
+            {
+                int mods = PackModifiers(e);
+                int vk = UnityKeyCodeToWindowsVk(e.keyCode);
+                if (vk != 0)
+                {
+                    _reader.WriteInputEvent(Layout.InputKeyDown, Layout.InputBtnNone, vk, mods);
+                }
+                if (e.character != 0 && e.character != '\0')
+                {
+                    _reader.WriteInputEvent(
+                        Layout.InputKeyChar, Layout.InputBtnNone, 0, 0, e.character);
+                }
+            }
+            else if (e.type == EventType.KeyUp)
+            {
+                int mods = PackModifiers(e);
+                int vk = UnityKeyCodeToWindowsVk(e.keyCode);
+                if (vk != 0)
+                {
+                    _reader.WriteInputEvent(Layout.InputKeyUp, Layout.InputBtnNone, vk, mods);
+                }
+            }
+        }
+
+        private static int PackModifiers(Event e)
+        {
+            int m = 0;
+            if ((e.modifiers & EventModifiers.Shift) != 0) m |= Layout.KeyModShift;
+            if ((e.modifiers & EventModifiers.Control) != 0) m |= Layout.KeyModControl;
+            if ((e.modifiers & EventModifiers.Alt) != 0) m |= Layout.KeyModAlt;
+            if ((e.modifiers & EventModifiers.Command) != 0) m |= Layout.KeyModMeta;
+            return m;
+        }
+
+        // Unity KeyCode → Windows virtual-key code. CEF (and Chromium's
+        // DOM key-event routing) expects Windows VKs regardless of the
+        // host platform. ASCII-ish keys (digits, space, backspace, tab,
+        // return, escape) happen to share values with Unity KeyCode;
+        // everything else diverges. We cover the keys a web UI cares
+        // about (text-editing navigation, arrows, function keys, modifier
+        // keys) and return 0 for unmapped codes to suppress the event.
+        private static int UnityKeyCodeToWindowsVk(KeyCode k)
+        {
+            // Letters: Unity lowercase (97..122), Windows uppercase (65..90).
+            if (k >= KeyCode.A && k <= KeyCode.Z)
+                return (int)k - (int)KeyCode.A + 0x41;
+            // Top-row digits 0..9 — identical encoding.
+            if (k >= KeyCode.Alpha0 && k <= KeyCode.Alpha9)
+                return (int)k - (int)KeyCode.Alpha0 + 0x30;
+            // Keypad digits → VK_NUMPAD0..9 (0x60..0x69).
+            if (k >= KeyCode.Keypad0 && k <= KeyCode.Keypad9)
+                return (int)k - (int)KeyCode.Keypad0 + 0x60;
+            // Function keys. Unity F1..F15 (282..296) → VK_F1..F15 (0x70..0x7E).
+            if (k >= KeyCode.F1 && k <= KeyCode.F15)
+                return (int)k - (int)KeyCode.F1 + 0x70;
+            switch (k)
+            {
+                case KeyCode.Backspace: return 0x08;
+                case KeyCode.Tab: return 0x09;
+                case KeyCode.Clear: return 0x0C;
+                case KeyCode.Return: return 0x0D;
+                case KeyCode.KeypadEnter: return 0x0D;
+                case KeyCode.Pause: return 0x13;
+                case KeyCode.CapsLock: return 0x14;
+                case KeyCode.Escape: return 0x1B;
+                case KeyCode.Space: return 0x20;
+                case KeyCode.PageUp: return 0x21;
+                case KeyCode.PageDown: return 0x22;
+                case KeyCode.End: return 0x23;
+                case KeyCode.Home: return 0x24;
+                case KeyCode.LeftArrow: return 0x25;
+                case KeyCode.UpArrow: return 0x26;
+                case KeyCode.RightArrow: return 0x27;
+                case KeyCode.DownArrow: return 0x28;
+                case KeyCode.Insert: return 0x2D;
+                case KeyCode.Delete: return 0x2E;
+                case KeyCode.LeftShift: return 0xA0;
+                case KeyCode.RightShift: return 0xA1;
+                case KeyCode.LeftControl: return 0xA2;
+                case KeyCode.RightControl: return 0xA3;
+                case KeyCode.LeftAlt: return 0xA4;
+                case KeyCode.RightAlt: return 0xA5;
+                case KeyCode.LeftCommand: return 0x5B;
+                case KeyCode.RightCommand: return 0x5C;
+                case KeyCode.Semicolon: return 0xBA;
+                case KeyCode.Equals: return 0xBB;
+                case KeyCode.Comma: return 0xBC;
+                case KeyCode.Minus: return 0xBD;
+                case KeyCode.Period: return 0xBE;
+                case KeyCode.Slash: return 0xBF;
+                case KeyCode.BackQuote: return 0xC0;
+                case KeyCode.LeftBracket: return 0xDB;
+                case KeyCode.Backslash: return 0xDC;
+                case KeyCode.RightBracket: return 0xDD;
+                case KeyCode.Quote: return 0xDE;
+                default: return 0;
+            }
+        }
+
         /// <summary>
         /// Returns true if the pixel at (cefX, cefY) on the current
         /// canvas IOSurface has alpha > 0. Used to decide whether a
@@ -587,6 +745,15 @@ namespace Dragonglass.Hud
         {
             GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
             GameEvents.onLevelWasLoadedGUIReady.Remove(OnSceneGuiReady);
+
+            // Drop the KSP keyboard lock if we were holding it —
+            // otherwise the lock leaks across scene unload and KSP
+            // stays deaf to keyboard input in the next scene.
+            if (_kbLockActive)
+            {
+                InputLockManager.RemoveControlLock(KeyboardLockId);
+                _kbLockActive = false;
+            }
 
             if (_reader != null)
             {

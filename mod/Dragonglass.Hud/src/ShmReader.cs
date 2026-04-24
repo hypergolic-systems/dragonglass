@@ -242,6 +242,34 @@ namespace Dragonglass.Hud
         }
 
         /// <summary>
+        /// Read the sidecar-published "CEF wants keyboard" flag. True
+        /// when a CEF editable element is currently focused, so the
+        /// plugin should apply a <c>ControlTypes.KEYBOARDINPUT</c>
+        /// input lock and forward keys to the sidecar instead of
+        /// letting KSP shortcut keys fire. Outside the seqlock — a
+        /// plain volatile read is sufficient.
+        /// </summary>
+        public bool ReadCefWantsKeyboard()
+        {
+            unsafe
+            {
+                byte* basePtr = null;
+                _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref basePtr);
+                try
+                {
+                    uint* flagPtr = (uint*)(basePtr + Layout.OffCefWantsKeyboard);
+                    uint v = *flagPtr;
+                    System.Threading.Thread.MemoryBarrier();
+                    return v != 0;
+                }
+                finally
+                {
+                    _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
+                }
+            }
+        }
+
+        /// <summary>
         /// Write a single input event into the SPSC ring buffer. The
         /// plugin is the sole producer; the sidecar is the sole
         /// consumer. No-op if the ring is full.

@@ -44,6 +44,13 @@ pub const OFF_IO_SURFACE_ID: usize = 56;
 /// the plugin distinguish "same surface, next frame" (no rebind needed)
 /// from "new surface, rebind external texture".
 pub const OFF_IO_SURFACE_GEN: usize = 60;
+/// `u32` flag (0 / 1) written by the sidecar whenever a CEF editable
+/// element gains or loses focus. The plugin polls it each frame and
+/// toggles a `ControlTypes.KEYBOARDINPUT` lock via `InputLockManager`
+/// so KSP shortcut keys don't fire while the user is typing into a
+/// web input. Outside the seqlock — the plugin reads this with plain
+/// relaxed-atomic semantics, no tear-detect needed.
+pub const OFF_CEF_WANTS_KEYBOARD: usize = 64;
 
 // --- Input event ring buffer (v3, plugin → sidecar) -----------------------
 //
@@ -103,6 +110,31 @@ pub const INPUT_NAVIGATE: u8 = 6;
 /// unused tail bytes; the consumer trims to the header's declared
 /// length.
 pub const INPUT_NAVIGATE_CHUNK: u8 = 7;
+/// Raw key-down event. `x` carries the **Windows virtual-key code**
+/// (e.g. `VK_BACK = 8`, `VK_ESCAPE = 27`, `VK_LEFT = 37`), `y`
+/// carries a packed modifier bitmask (bit 0 shift, bit 1 ctrl, bit
+/// 2 alt, bit 3 meta/cmd), `extra` is unused. Mapped to a CEF
+/// `KEYEVENT_RAWKEYDOWN` on the sidecar side. Drives web
+/// `keydown` DOM events, so apps can wire `/` / Escape / arrow-key
+/// handlers that fire without waiting for a `CHAR`.
+pub const INPUT_KEY_DOWN: u8 = 8;
+/// Raw key-up event. Same slot encoding as `INPUT_KEY_DOWN`, maps
+/// to CEF `KEYEVENT_KEYUP`.
+pub const INPUT_KEY_UP: u8 = 9;
+/// Typed character event, emitted alongside `INPUT_KEY_DOWN` when
+/// the press actually produces text. `extra` carries a single UTF-16
+/// code unit in its low 16 bits; `x` / `y` / `button` are unused.
+/// One event per code unit (supplementary-plane chars split into two
+/// surrogate events). Maps to CEF `KEYEVENT_CHAR`, which is what
+/// actually writes into the focused editable.
+pub const INPUT_KEY_CHAR: u8 = 10;
+
+// --- Key-event modifier bitmask (packed into the `y` field of
+// INPUT_KEY_DOWN / INPUT_KEY_UP slots) ---
+pub const KEY_MOD_SHIFT: i32 = 1 << 0;
+pub const KEY_MOD_CONTROL: i32 = 1 << 1;
+pub const KEY_MOD_ALT: i32 = 1 << 2;
+pub const KEY_MOD_META: i32 = 1 << 3;
 
 /// Hard cap on the URL byte length a single `INPUT_NAVIGATE` message
 /// may carry. Keeps any one navigate message well under ring capacity
@@ -124,6 +156,8 @@ const _: () = {
     assert!(OFF_IO_SURFACE_ID % 4 == 0);
     assert!(OFF_IO_SURFACE_GEN % 4 == 0);
     assert!(OFF_IO_SURFACE_GEN + 4 <= HEADER_SIZE);
+    assert!(OFF_CEF_WANTS_KEYBOARD % 4 == 0);
+    assert!(OFF_CEF_WANTS_KEYBOARD + 4 <= HEADER_SIZE);
     // Basic sanity: u64 on every platform we care about is 8 bytes and aligns to 8.
     assert!(size_of::<u64>() == 8);
     assert!(align_of::<u64>() == 8);
