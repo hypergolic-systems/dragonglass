@@ -15,7 +15,7 @@
 //!    draining the input ring into `BrowserHost::send_mouse_*` each
 //!    tick.
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -26,6 +26,7 @@ use dg_sidecar::app::{
     KspBrowserProcessHandlerInner, KspClientBuilder, KspRenderHandlerBuilder,
     KspRenderHandlerInner, INITIAL_HEIGHT, INITIAL_WIDTH,
 };
+use dg_sidecar::static_server::{self, StaticServerConfig};
 use dg_shm::{shm_path_for_session, InputEvent, ShmWriter};
 
 /// Watch the parent process and self-terminate if it disappears.
@@ -54,71 +55,11 @@ fn spawn_parent_watchdog() {
         .expect("spawn parent-watchdog thread");
 }
 
-/// Spawn a background thread serving static files from `root_dir`.
-/// Returns the base URL (e.g. `http://127.0.0.1:12345`).
-fn start_static_server(root_dir: &Path) -> Result<String> {
-    let server = tiny_http::Server::http("127.0.0.1:0")
-        .map_err(|e| anyhow::anyhow!("failed to bind static file server: {e}"))?;
-    let port = server.server_addr().to_ip().unwrap().port();
-    let base_url = format!("http://127.0.0.1:{port}");
-    let root = root_dir.to_path_buf();
-
-    std::thread::Builder::new()
-        .name("static-http".into())
-        .spawn(move || {
-            for request in server.incoming_requests() {
-                // request.url() is the request-line target — includes
-                // the query string. Truncate at the first '?' or '#'
-                // before doing filesystem lookup, otherwise a load like
-                // `/?ws=ws://...` tries to open a file literally named
-                // `?ws=ws://...` and 404s.
-                let url = request.url();
-                let path_only = &url[..url.find(|c| c == '?' || c == '#').unwrap_or(url.len())];
-                let url_path = path_only.trim_start_matches('/');
-                let file_path = if url_path.is_empty() {
-                    root.join("index.html")
-                } else {
-                    root.join(url_path)
-                };
-
-                // Prevent path traversal
-                if !file_path.starts_with(&root) {
-                    let _ = request.respond(tiny_http::Response::from_string("forbidden").with_status_code(403));
-                    continue;
-                }
-
-                match std::fs::File::open(&file_path) {
-                    Ok(file) => {
-                        let content_type = match file_path.extension().and_then(|e| e.to_str()) {
-                            Some("html") => "text/html; charset=utf-8",
-                            Some("js") => "application/javascript",
-                            Some("css") => "text/css",
-                            Some("json") => "application/json",
-                            Some("png") => "image/png",
-                            Some("svg") => "image/svg+xml",
-                            Some("woff2") => "font/woff2",
-                            Some("woff") => "font/woff",
-                            _ => "application/octet-stream",
-                        };
-                        let header = tiny_http::Header::from_bytes(
-                            b"Content-Type", content_type.as_bytes()
-                        ).unwrap();
-                        let response = tiny_http::Response::from_file(file)
-                            .with_header(header);
-                        let _ = request.respond(response);
-                    }
-                    Err(_) => {
-                        let _ = request.respond(
-                            tiny_http::Response::from_string("not found")
-                                .with_status_code(404),
-                        );
-                    }
-                }
-            }
-        })?;
-
-    Ok(base_url)
-}
+// The static server lives in `dg_sidecar::static_server`. It composes
+// a synthesized shell HTML at `/`, an import map covering core
+// runtime ESM bundles, and per-mod URL prefixes for any
+// `GameData/<dir>/UI/` package. See that module for the routing
+// table and security checks.
 
 /// Translate a Windows virtual-key code (which is what the plugin
 /// ships on the wire, regardless of host OS) into the platform-native
@@ -515,55 +456,60 @@ fn handle_resize(handler: &KspRenderHandlerInner, host: &cef::BrowserHost, evt: 
 }
 
 fn main() -> Result<()> {
-    // CLI: positional `<path-or-url> <session-id> [ws-url]` plus
-    // optional `--device-scale=<f>` anywhere. We parse flags first
-    // into a separate vec so positional indexing stays simple.
+    // CLI: positional `<session-id> [ws-url]`, plus required flags
+    // `--gamedata=<path>` and `--entry=<specifier>`, and optional
+    // `--device-scale=<f>`. The C# plugin assembles these in
+    // `SidecarHost.EnsureRunning`. The Dragonglass runtime lives at
+    // `<gamedata>/Dragonglass_Hud/UI/`; no separate path arg.
     let raw: Vec<String> = std::env::args().collect();
     let mut device_scale: f32 = 1.0;
+    let mut gamedata: Option<PathBuf> = None;
+    let mut entry: Option<String> = None;
     let mut positional: Vec<String> = Vec::with_capacity(raw.len());
-    // Skip argv[0]; anything matching --device-scale=<f> is consumed.
     for arg in raw.iter().skip(1) {
         if let Some(v) = arg.strip_prefix("--device-scale=") {
             match v.parse::<f32>() {
                 Ok(f) if f.is_finite() && f > 0.0 => {
                     device_scale = f.clamp(0.5, 3.0);
                 }
-                _ => {
-                    eprintln!("--device-scale: ignoring invalid value {v:?}; using 1.0");
-                }
+                _ => eprintln!("--device-scale: ignoring invalid value {v:?}; using 1.0"),
             }
+        } else if let Some(v) = arg.strip_prefix("--gamedata=") {
+            gamedata = Some(PathBuf::from(v));
+        } else if let Some(v) = arg.strip_prefix("--entry=") {
+            entry = Some(v.to_string());
         } else {
             positional.push(arg.clone());
         }
     }
-    if positional.len() < 2 {
+    if positional.is_empty() {
         anyhow::bail!(
-            "usage: dg-sidecar <path-or-url> <session-id> [ws-url] [--device-scale=<f>]"
+            "usage: dg-sidecar <session-id> [ws-url] \
+             --gamedata=<path> --entry=<specifier> [--device-scale=<f>]"
         );
     }
-    let url_or_path = &positional[0];
-    let session_id = &positional[1];
-    // Optional third positional: live-telemetry WS URL. The sidecar
+    let gamedata = gamedata.ok_or_else(|| anyhow::anyhow!("missing --gamedata=<path>"))?;
+    let entry = entry.ok_or_else(|| anyhow::anyhow!("missing --entry=<specifier>"))?;
+    if !gamedata.is_dir() {
+        anyhow::bail!("--gamedata is not a directory: {}", gamedata.display());
+    }
+    let session_id = &positional[0];
+    // Optional second positional: live-telemetry WS URL. The sidecar
     // appends it to the loaded page as `?ws=<encoded>` so the UI
     // auto-connects when launched by the KSP HUD. Browser-side
     // iteration (`just ui-dev`) doesn't pass it and falls back to the
     // simulated feed.
-    let ws_url = positional.get(2);
+    let ws_url = positional.get(1);
     eprintln!("device scale factor: {device_scale}");
 
-    // If the argument is a local path, serve it over HTTP.
-    // If it's already a URL, use it directly.
-    let base_url = if url_or_path.starts_with("http://") || url_or_path.starts_with("https://") {
-        url_or_path.clone()
-    } else {
-        let path = Path::new(url_or_path);
-        if !path.is_dir() {
-            anyhow::bail!("UI path is not a directory: {}", path.display());
-        }
-        let base = start_static_server(path)?;
-        eprintln!("static file server → {base} (root: {})", path.display());
-        base
-    };
+    let base_url = static_server::start(StaticServerConfig {
+        gamedata: gamedata.clone(),
+        entry: entry.clone(),
+    })?;
+    eprintln!(
+        "static file server → {base_url} (gamedata: {}, entry: {entry})",
+        gamedata.display()
+    );
 
     let boot_url = match ws_url {
         Some(ws) => format!("{base_url}?ws={}", urlencoding::encode(ws)),

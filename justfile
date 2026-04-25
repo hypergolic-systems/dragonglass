@@ -14,6 +14,13 @@ ui-dev-workbench:
 ui-build:
     cd ui && npm run build
 
+# Build the Dragonglass runtime: ESM bundles published under known
+# import-map specifiers (svelte, three, threlte, instruments,
+# telemetry/*, stock). Emitted under ui/runtime/dist/. Consumed by
+# the sidecar's static server at /<mod>/UI/_runtime/.
+ui-runtime-build:
+    cd ui && npm -w @dragonglass/runtime run build
+
 # Project-graph TS check (root `npm run typecheck` is `tsc -b`) plus
 # svelte-check on each app workspace — the latter is what catches
 # Svelte template errors and stricter checks like unused class fields,
@@ -233,7 +240,10 @@ dist-telemetry: (mod-build "Release")
     rm -rf "$stage"
     echo "Built → release/Dragonglass_Telemetry.zip"
 
-# Hud mod: Core plugin + Stock flight UI (platform-independent)
+# Hud mod: Core plugin + Stock flight UI (platform-independent).
+# `ui-build` runs the full UI chain — instruments + runtime (which
+# includes stock as one of its entries) — so we don't list
+# ui-runtime-build separately here.
 dist-hud: ui-build (mod-build "Release") notices
     #!/usr/bin/env bash
     set -euo pipefail
@@ -248,9 +258,15 @@ dist-hud: ui-build (mod-build "Release") notices
     cp mod/Dragonglass.Hud/build/Dragonglass.Hud.dll       "$root/Plugins/"
     cp mod/Dragonglass.Hud/build/0Harmony.dll              "$root/Plugins/"
 
-    # Stock flight UI
-    mkdir -p "$root/UI/Stock"
-    cp -R ui/apps/stock/dist/* "$root/UI/Stock/"
+    # Runtime ESM bundles: svelte, three, threlte, instruments,
+    # telemetry, stock — all built together so they share auto-chunked
+    # internals (single Svelte runtime instance for the whole tree).
+    # Land directly under UI/, where the sidecar serves them like any
+    # other mod's UI directory (Dragonglass_Hud is just the mod whose
+    # UI/ holds the runtime). The sidecar synthesizes the shell HTML
+    # at request time; there's no static index.html on disk.
+    mkdir -p "$root/UI"
+    cp -R ui/runtime/dist/. "$root/UI/"
 
     cp LICENSE "$root/"
     cp release/THIRD_PARTY_NOTICES "$root/"

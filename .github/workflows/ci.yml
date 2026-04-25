@@ -25,6 +25,12 @@ jobs:
         working-directory: ui
       - run: npm run typecheck
         working-directory: ui
+      # `tsc -b` only walks the root tsconfig's references, which omits
+      # the runtime package and skips Svelte template checks. Mirror
+      # `just ui-typecheck` by also running each workspace's own
+      # typecheck (svelte-check on apps, tsc on runtime).
+      - run: npm run typecheck --workspaces --if-present
+        working-directory: ui
       - run: npm run build
         working-directory: ui
 
@@ -52,7 +58,7 @@ jobs:
       - run: cargo test -p dg-shm
 
   rust-macos:
-    name: Rust dg-shm + dg-gpu (macOS)
+    name: Rust dg-shm + dg-gpu + dg-sidecar (macOS)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +68,12 @@ jobs:
           workspaces: ". -> target"
       - run: cargo check -p dg-shm -p dg-gpu
       - run: cargo test -p dg-shm
+      # dg-sidecar's importmap + static_server modules are pure Rust
+      # (no CEF needed at runtime for the tests), but compiling the
+      # crate pulls in cef-dll-sys, whose build script downloads CEF
+      # from the Spotify CDN. Swatinem's cache persists target/build
+      # so subsequent runs skip the download.
+      - run: cargo test -p dg-sidecar --lib
 
   native-darwin:
     name: Native plugin (darwin-universal)

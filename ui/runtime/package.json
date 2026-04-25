@@ -1,27 +1,23 @@
 {
-  "name": "@dragonglass/stock",
+  "name": "@dragonglass/runtime",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "exports": {
-    ".": "./src/main.ts"
-  },
   "scripts": {
-    "dev": "vite",
-    "preview": "vite preview",
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+    "build": "vite build",
+    "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
     "@dragonglass/instruments": "*",
+    "@dragonglass/stock": "*",
     "@dragonglass/telemetry": "*",
     "@threlte/core": "^8.0.0",
+    "svelte": "^5.0.0",
     "three": "^0.160.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@types/three": "^0.160.0",
-    "svelte": "^5.0.0",
-    "svelte-check": "^4.0.0",
     "typescript": "^5.6.3",
     "vite": "^6.0.0"
   }

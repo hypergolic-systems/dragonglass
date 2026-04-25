@@ -1,11 +1,11 @@
 {
   "name": "dragonglass-ui",
   "private": true,
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": ["packages/*", "apps/*", "runtime"],
   "scripts": {
     "dev": "npm -w @dragonglass/stock run dev",
     "dev:workbench": "npm -w @dragonglass/workbench run dev",
-    "build": "npm -w @dragonglass/instruments run build && npm -w @dragonglass/stock run build",
+    "build": "npm -w @dragonglass/instruments run build && npm -w @dragonglass/runtime run build",
     "typecheck": "tsc -b"
   }
 }

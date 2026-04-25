@@ -40,6 +40,11 @@ namespace Dragonglass.Hud
         // loopback bind in Dragonglass.Telemetry.
         private const string TelemetryWsUrl = "ws://127.0.0.1:8787/";
 
+        // The bare specifier the synthesized shell HTML imports.
+        // Resolved by the sidecar's import map to UI/_runtime/stock.js.
+        // Same constant matches the entry the runtime build emits.
+        private const string EntrySpecifier = "@dragonglass/stock";
+
         private static readonly object Lock = new object();
         private static Process _proc;
         private static bool _quitHookInstalled;
@@ -102,11 +107,11 @@ namespace Dragonglass.Hud
                     return;
                 }
 
-                string bootUrl = ResolveBootUrl();
-                if (bootUrl == null)
+                string gameDataDir = ResolveGameDataDir();
+                if (gameDataDir == null)
                 {
                     UDebug.LogWarning(LogPrefix +
-                        "no UI found — expected UI/Stock/index.html in mod directory");
+                        "GameData root not found — Dragonglass.Hud.dll location unrecognised");
                     return;
                 }
 
@@ -116,17 +121,17 @@ namespace Dragonglass.Hud
 
                 try
                 {
-                    // bootUrl is a filesystem path on Windows and may
-                    // contain spaces (e.g. "C:\Users\Alex Rickabaugh\...").
-                    // ProcessStartInfo.Arguments is a single command-line
-                    // string the child splits via CommandLineToArgvW, so
-                    // wrap the path in double quotes to keep it one arg.
-                    // SessionId is hex, TelemetryWsUrl has no whitespace
-                    // — only bootUrl needs quoting.
+                    // GameData path may contain spaces on Windows
+                    // (e.g. "C:\Users\Alex Rickabaugh\..."), so wrap
+                    // it in double quotes. SessionId is hex,
+                    // TelemetryWsUrl has no whitespace, --entry is a
+                    // bare specifier — none of those need quoting.
                     var psi = new ProcessStartInfo
                     {
                         FileName = binary,
-                        Arguments = "\"" + bootUrl + "\" " + SessionId + " " + TelemetryWsUrl
+                        Arguments = SessionId + " " + TelemetryWsUrl
+                            + " --gamedata=\"" + gameDataDir + "\""
+                            + " --entry=" + EntrySpecifier
                             + " --device-scale=" +
                             deviceScale.ToString("0.###",
                                 System.Globalization.CultureInfo.InvariantCulture),
@@ -340,30 +345,33 @@ namespace Dragonglass.Hud
         }
 
         /// <summary>
-        /// Resolve the UI directory the sidecar should load.
-        /// Returns the UI/Stock directory relative to the mod install.
+        /// Resolve the GameData root the sidecar should serve from.
+        /// The sidecar synthesizes the shell HTML at request time and
+        /// scans GameData for mod UI directories — Dragonglass_Hud
+        /// itself is just one of them, the one whose UI/ contains the
+        /// runtime ESM bundles (svelte, stock, instruments, telemetry).
+        ///
+        /// gameDataDir = parent of <modDir> (i.e. .../GameData/).
+        /// Returns null if the resolution fails — usually means the
+        /// DLL was loaded from an unexpected location.
         /// </summary>
-        private static string ResolveBootUrl()
+        private static string ResolveGameDataDir()
         {
             try
             {
                 string dllPath = Assembly.GetExecutingAssembly().Location;
-                if (!string.IsNullOrEmpty(dllPath))
-                {
-                    string pluginsDir = Path.GetDirectoryName(dllPath);
-                    string modDir = Path.GetDirectoryName(pluginsDir);
-                    string uiDir = Path.Combine(modDir, "UI", "Stock");
-                    if (Directory.Exists(uiDir))
-                    {
-                        return uiDir;
-                    }
-                }
+                if (string.IsNullOrEmpty(dllPath)) return null;
+                string pluginsDir = Path.GetDirectoryName(dllPath);
+                string modDir = Path.GetDirectoryName(pluginsDir);
+                string candidate = Path.GetDirectoryName(modDir);
+                if (!Directory.Exists(candidate)) return null;
+                return candidate;
             }
             catch (Exception e)
             {
-                UDebug.LogWarning(LogPrefix + "URL resolve failed: " + e.Message);
+                UDebug.LogWarning(LogPrefix + "GameData resolve failed: " + e.Message);
+                return null;
             }
-            return null;
         }
 
         /// <summary>
