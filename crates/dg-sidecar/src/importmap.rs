@@ -43,16 +43,23 @@ pub struct RuntimeEntry {
 /// assets (theme tokens) aren't import-map entries; they're auto-
 /// `<link>`ed by `synthesize_shell` separately.
 pub const RUNTIME_INDEX: &[RuntimeEntry] = &[
-    RuntimeEntry { specifier: "svelte",                            path: "svelte.js" },
-    RuntimeEntry { specifier: "three",                             path: "three.js" },
-    RuntimeEntry { specifier: "@threlte/core",                     path: "threlte.js" },
-    RuntimeEntry { specifier: "@dragonglass/instruments",          path: "instruments/index.js" },
-    RuntimeEntry { specifier: "@dragonglass/telemetry/core",       path: "telemetry/core.js" },
-    RuntimeEntry { specifier: "@dragonglass/telemetry/svelte",     path: "telemetry/svelte.js" },
-    RuntimeEntry { specifier: "@dragonglass/telemetry/simulated",  path: "telemetry/simulated.js" },
-    RuntimeEntry { specifier: "@dragonglass/telemetry/smoothing",  path: "telemetry/smoothing.js" },
-    RuntimeEntry { specifier: "@dragonglass/telemetry/dragonglass", path: "telemetry/dragonglass.js" },
-    RuntimeEntry { specifier: "@dragonglass/stock",                path: "stock.js" },
+    RuntimeEntry { specifier: "svelte",                              path: "svelte.js" },
+    // Svelte 5 compiled-component output emits direct imports of
+    // these internal sub-paths. Mapping them explicitly lets
+    // externally-built UI mods (Nova et al.) share runtime chunks
+    // with stock instead of bundling their own Svelte instance.
+    RuntimeEntry { specifier: "svelte/internal/client",              path: "svelte/internal/client.js" },
+    RuntimeEntry { specifier: "svelte/internal/disclose-version",    path: "svelte/internal/disclose-version.js" },
+    RuntimeEntry { specifier: "svelte/internal/flags/legacy",        path: "svelte/internal/flags/legacy.js" },
+    RuntimeEntry { specifier: "three",                               path: "three.js" },
+    RuntimeEntry { specifier: "@threlte/core",                       path: "threlte.js" },
+    RuntimeEntry { specifier: "@dragonglass/instruments",            path: "instruments/index.js" },
+    RuntimeEntry { specifier: "@dragonglass/telemetry/core",         path: "telemetry/core.js" },
+    RuntimeEntry { specifier: "@dragonglass/telemetry/svelte",       path: "telemetry/svelte.js" },
+    RuntimeEntry { specifier: "@dragonglass/telemetry/simulated",    path: "telemetry/simulated.js" },
+    RuntimeEntry { specifier: "@dragonglass/telemetry/smoothing",    path: "telemetry/smoothing.js" },
+    RuntimeEntry { specifier: "@dragonglass/telemetry/dragonglass",  path: "telemetry/dragonglass.js" },
+    RuntimeEntry { specifier: "@dragonglass/stock",                  path: "stock.js" },
 ];
 
 /// One discovered mod under `GameData/`. The directory is

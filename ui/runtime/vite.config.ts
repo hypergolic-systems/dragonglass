@@ -21,16 +21,23 @@ export default defineConfig({
   build: {
     lib: {
       entry: {
-        svelte:                  resolve(__dirname, 'src/svelte.ts'),
-        three:                   resolve(__dirname, 'src/three.ts'),
-        threlte:                 resolve(__dirname, 'src/threlte.ts'),
-        stock:                   resolve(__dirname, 'src/stock.ts'),
-        'instruments/index':     resolve(__dirname, 'src/instruments.ts'),
-        'telemetry/core':        resolve(__dirname, 'src/telemetry-core.ts'),
-        'telemetry/svelte':      resolve(__dirname, 'src/telemetry-svelte.ts'),
-        'telemetry/simulated':   resolve(__dirname, 'src/telemetry-simulated.ts'),
-        'telemetry/smoothing':   resolve(__dirname, 'src/telemetry-smoothing.ts'),
-        'telemetry/dragonglass': resolve(__dirname, 'src/telemetry-dragonglass.ts'),
+        svelte:                            resolve(__dirname, 'src/svelte.ts'),
+        // Svelte 5 compiled-component output imports these internal
+        // sub-paths directly. Externally-built UI mods need each one
+        // to be addressable via the importmap so they share chunks
+        // (and therefore runtime state) with stock and the runtime.
+        'svelte/internal/client':          resolve(__dirname, 'src/svelte-internal-client.ts'),
+        'svelte/internal/disclose-version':resolve(__dirname, 'src/svelte-internal-disclose-version.ts'),
+        'svelte/internal/flags/legacy':    resolve(__dirname, 'src/svelte-internal-flags-legacy.ts'),
+        three:                             resolve(__dirname, 'src/three.ts'),
+        threlte:                           resolve(__dirname, 'src/threlte.ts'),
+        stock:                             resolve(__dirname, 'src/stock.ts'),
+        'instruments/index':               resolve(__dirname, 'src/instruments.ts'),
+        'telemetry/core':                  resolve(__dirname, 'src/telemetry-core.ts'),
+        'telemetry/svelte':                resolve(__dirname, 'src/telemetry-svelte.ts'),
+        'telemetry/simulated':             resolve(__dirname, 'src/telemetry-simulated.ts'),
+        'telemetry/smoothing':             resolve(__dirname, 'src/telemetry-smoothing.ts'),
+        'telemetry/dragonglass':           resolve(__dirname, 'src/telemetry-dragonglass.ts'),
       },
       formats: ['es'],
     },

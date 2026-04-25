@@ -122,10 +122,34 @@ fn serve_under(request: Request, root: &Path, rel: &str) {
         respond_status(request, 403, "forbidden");
         return;
     };
-    match std::fs::File::open(&joined) {
+    // ESM-style extensionless resolution: `import "@nova/hud"` maps
+    // through the importmap's `@nova/` prefix to `/Nova/hud`, but the
+    // file on disk is `hud.js`. Fall back to `<path>.js` if the bare
+    // path doesn't exist and the request doesn't already have an
+    // extension. Keeps prefix-mapped specifiers working without
+    // requiring every import statement to spell out `.js`.
+    let serve_path = match std::fs::metadata(&joined) {
+        Ok(m) if m.is_file() => joined,
+        _ if joined.extension().is_none() => {
+            let mut alt = joined.clone();
+            alt.set_extension("js");
+            if alt.is_file() {
+                alt
+            } else {
+                respond_status(request, 404, "not found");
+                return;
+            }
+        }
+        _ => {
+            respond_status(request, 404, "not found");
+            return;
+        }
+    };
+    match std::fs::File::open(&serve_path) {
         Ok(file) => {
             let header =
-                Header::from_bytes(b"Content-Type", content_type_for(&joined).as_bytes()).unwrap();
+                Header::from_bytes(b"Content-Type", content_type_for(&serve_path).as_bytes())
+                    .unwrap();
             let response = Response::from_file(file).with_header(header);
             let _ = request.respond(response);
         }
