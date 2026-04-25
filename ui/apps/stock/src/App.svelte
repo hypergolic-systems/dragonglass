@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { setKsp, useGame } from '@dragonglass/telemetry/svelte';
-  import { SimulatedKsp } from '@dragonglass/telemetry/simulated';
-  import { DragonglassTelemetry } from '@dragonglass/telemetry/dragonglass';
+  import { getKsp, useGame } from '@dragonglass/telemetry/svelte';
   import {
     GameTopic,
     ConfigTopic,
@@ -11,7 +9,6 @@
     CAP_EDITOR_PAW,
     type Capability,
     type ConfigData,
-    type Ksp,
   } from '@dragonglass/telemetry/core';
   import FlightHUD from './screens/FlightHUD/FlightHUD.svelte';
   import EditorHUD from './screens/EditorHUD.svelte';
@@ -27,14 +24,9 @@
     paw?: boolean;
   }
 
-  // The sidecar launches us with `?ws=ws://127.0.0.1:8787/` to attach
-  // to the live KSP telemetry feed. Without the param (e.g. `just
-  // ui-dev` in a plain browser) we fall back to the keyboard-driven
-  // SimulatedKsp so the navball and tapes still animate for UI work.
-  const wsUrl = new URLSearchParams(window.location.search).get('ws');
-  const ksp: Ksp = wsUrl
-    ? new DragonglassTelemetry(wsUrl)
-    : new SimulatedKsp();
+  // Telemetry singleton; auto-bootstraps from `?ws=` (sidecar-set in
+  // KSP, absent under `just ui-dev` → SimulatedKsp).
+  const ksp = getKsp();
 
   // Config arrives asynchronously: subscribe, wait for the first
   // frame, then translate it into the capability declaration. The
@@ -51,7 +43,6 @@
       ksp.send(GameTopic, 'setCapabilities', computeCaps(config));
     });
   });
-  setKsp(ksp);
 
   // `editor: false` suppresses everything editor-scoped, including
   // editor/paw even when `paw: true` — the UI isn't mounting an
