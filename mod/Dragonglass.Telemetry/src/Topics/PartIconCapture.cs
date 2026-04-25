@@ -35,18 +35,23 @@ namespace Dragonglass.Telemetry.Topics
         private const int IconSize = 64;
         private const int IconDepth = 24;
 
-        // Stock uses orthographic size 34 at Z=-300 so the 25×scaled
-        // iconPrefab fills the middle third of the frame. We use the
-        // same numbers so the captured PNG and the live stock tooltip
-        // read as the same icon.
+        // Camera parameters mirror PartListTooltipMasterController:
+        // orthographic size 34, positioned at Z=-300, far clip 295.
+        // Combined, visible Z range in world space is [-299.9, -5]
+        // along the camera's forward axis.
         private const float CamOrthoSize = 34f;
         private static readonly Vector3 CamPosition = new Vector3(0f, -2000f, -300f);
         private const float CamFarClip = 295f;
-        // Stock's EditorPartIcon.InstantiatePartIcon sets localScale
-        // to Vector3.one * 25 (iconSize / 2 where iconSize=50). Same
-        // scale here reproduces the same framing.
-        private const float IconScale = 25f;
-        private static readonly Vector3 IconPosition = new Vector3(0f, -2000f, 0f);
+        // PartListTooltipController parents the icon under the camera
+        // at localPosition (0, 0, 50) and localScale 50. That puts the
+        // mesh 50 world units in front of the camera — comfortably
+        // inside the far clip plane — and at the scale stock's live
+        // tooltip uses. We mirror both: an icon planted at world Z=0
+        // while the camera sits at Z=-300 is 300 units away, beyond
+        // the 295 far plane, so every render returns an empty frame
+        // and every base64 PNG comes out identical.
+        private const float IconScale = 50f;
+        private const float IconLocalZ = 50f;
 
         // In-process cache, keyed by part name. PartLoader completes
         // before the editor scene enters, so we capture lazily on
@@ -76,15 +81,27 @@ namespace Dragonglass.Telemetry.Topics
             try
             {
                 iconGo = Object.Instantiate(ap.iconPrefab);
-                iconGo.SetActive(true);
-                iconGo.transform.position = IconPosition;
+                SetLayerRecursive(iconGo, _layerId);
+
+                // Parent under the camera so the icon sits at a known
+                // local +Z in front of it, in a camera-relative frame.
+                // Matches PartListTooltipController's setup line-for-line
+                // and avoids the magic world-Z offset that bit us before.
+                iconGo.transform.SetParent(_cam.transform, worldPositionStays: false);
+                iconGo.transform.localPosition = new Vector3(0f, 0f, IconLocalZ);
                 iconGo.transform.localScale = Vector3.one * IconScale;
-                // Stock's 3/4 view — -15° pitch, -30° yaw. Matches
-                // EditorPartIcon.InstantiatePartIcon.
+
+                // Stock's 3/4 view: world pitch -15° then a local yaw
+                // of -30° around the tilted Y axis. The quaternion
+                // product below is equivalent to `rotation = Euler(-15,0,0)`
+                // followed by `Rotate(0,-30,0)` in Space.Self.
                 iconGo.transform.rotation =
                     Quaternion.Euler(-15f, 0f, 0f) * Quaternion.Euler(0f, -30f, 0f);
 
-                SetLayerRecursive(iconGo, _layerId);
+                // SetActive last so any Awake/OnEnable on the prefab's
+                // MonoBehaviours fires with the transform already in
+                // its render pose — same order as stock's tooltip.
+                iconGo.SetActive(true);
 
                 RenderTexture prev = RenderTexture.active;
                 _cam.Render();
@@ -103,7 +120,18 @@ namespace Dragonglass.Telemetry.Topics
             }
             finally
             {
-                if (iconGo != null) Object.Destroy(iconGo);
+                // DestroyImmediate, not Destroy: the whole catalog capture
+                // runs inside a single WriteData call on one Unity frame,
+                // so deferred destroys would keep every prior clone alive
+                // and parented under the camera until end-of-frame. With
+                // all clones pinned to the same localPose, they overlap
+                // at equal Z and the camera's next Render picks a winner
+                // from the pileup by submission order — later captures
+                // end up byte-identical to some earlier part's render.
+                // Synchronous destroy keeps the hierarchy clean between
+                // iterations. Safe here because the clone is private and
+                // has no external refs or physics callbacks.
+                if (iconGo != null) Object.DestroyImmediate(iconGo);
             }
         }
 
