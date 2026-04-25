@@ -4,6 +4,7 @@ export { useFlightOps } from './use-flight-ops.svelte';
 export { useSmoothedOrientation } from './use-smoothed-orientation.svelte';
 export { useAssembly } from './use-assembly.svelte';
 export { useGame } from './use-game.svelte';
+export { useEditorState } from './use-editor-state.svelte';
 export { useEngineData } from './use-engine.svelte';
 export { useStageData } from './use-stage.svelte';
 export { useStageOps } from './use-stage-ops.svelte';

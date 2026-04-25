@@ -1,6 +1,7 @@
 export { type Topic, type Ksp, topic } from './ksp';
 export { type ClockData } from './clock-data';
 export { type ConfigData } from './config-data';
+export { type EditorStateData } from './editor-state-data';
 export { type GameData } from './game-data';
 export { type GameOps } from './game-ops';
 export {
@@ -82,6 +83,7 @@ export {
 export {
   ClockTopic,
   ConfigTopic,
+  EditorStateTopic,
   GameTopic,
   FlightTopic,
   AssemblyTopic,

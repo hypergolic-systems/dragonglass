@@ -17,7 +17,11 @@
   // memory); Escape clears search and unfocuses.
 
   import { onMount } from 'svelte';
-  import { usePartCatalog, usePartCatalogOps } from '@dragonglass/telemetry/svelte';
+  import {
+    usePartCatalog,
+    usePartCatalogOps,
+    useEditorState,
+  } from '@dragonglass/telemetry/svelte';
   import type { PartCategory, PartCatalogEntry } from '@dragonglass/telemetry/core';
 
   // LocalStorage key for the recently-picked ring buffer. Survives
@@ -119,6 +123,14 @@
 
   const catalog = usePartCatalog();
   const ops = usePartCatalogOps();
+  // `heldPart` is non-null whenever the player has a part attached to
+  // the KSP cursor. Used to flip panel click semantics: while held,
+  // clicking anywhere on the catalog discards the part (mirrors
+  // stock's drop-on-the-parts-bin). Rows / chips / recent picks stop
+  // doing their normal jobs so the whole panel reads as a trash
+  // target during the drop gesture.
+  const editorState = useEditorState();
+  const holding = $derived(editorState.heldPart !== null);
 
   // `null` = no category filter (all parts visible). A chip click
   // toggles: clicking the active chip again clears back to null.
@@ -188,6 +200,7 @@
   });
 
   function toggleProfile(p: Profile) {
+    if (holding) return;
     const next = new Set(activeProfiles);
     if (next.has(p)) next.delete(p);
     else next.add(p);
@@ -246,12 +259,25 @@
   });
 
   function onPick(entry: PartCatalogEntry) {
+    // While a part is held, every click on the panel is part of the
+    // drop gesture — early-return so the bubbled click hits the
+    // aside's onPanelClick and discards instead of spawning.
+    if (holding) return;
     pushRecent(entry.name);
     ops.pickPart(entry.name);
   }
 
   function toggleCategory(c: PartCategory) {
+    if (holding) return;
     activeCategory = activeCategory === c ? null : c;
+  }
+
+  // Panel-level click handler. Fires on every click that bubbles up
+  // through the aside — rows, recent thumbnails, chips, or empty
+  // space. The inner handlers early-return while `holding`, so the
+  // click lands here cleanly and discards the held part.
+  function onPanelClick() {
+    if (holding) ops.deleteHeld();
   }
 
   // Stop pointer-down from reaching the drag surface underneath
@@ -261,7 +287,14 @@
   const queryActive = $derived(search.trim().length > 0);
 </script>
 
-<aside class="req" onpointerdown={halt}>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<aside
+  class="req"
+  class:req--holding={holding}
+  onpointerdown={halt}
+  onclick={onPanelClick}
+>
   <!-- Station masthead. "REQUISITION" frames the panel as a parts-
        dispatch console rather than a neutral "list of parts" —
        wayfinding that tells the player what the click is doing. -->
@@ -272,6 +305,16 @@
       {catalog.entries.length}
     </span>
   </header>
+
+  {#if holding}
+    <!-- Drop banner. Visible only while a part is on the cursor; the
+         whole panel is a valid drop target, and any click discards
+         via onPanelClick → ops.deleteHeld. -->
+    <div class="req__drop" aria-live="polite">
+      <span class="req__drop-mark" aria-hidden="true">×</span>
+      <span class="req__drop-text">drop to discard held part</span>
+    </div>
+  {/if}
 
   <!-- Search row. Lens glyph on the left to establish "look up"; the
        `/` keyboard hint on the right reinforces discoverability. -->
@@ -1017,5 +1060,61 @@
     color: var(--fg-mute);
     opacity: 0.5;
     font-size: 14px;
+  }
+
+  /* ============================================================
+     Holding state — discard affordance
+     ============================================================
+     When a part is on the cursor, the panel repurposes as a trash
+     target. A banner announces the gesture, row dispatch arrows
+     hide, and row hovers tint alert-red so it's visually obvious
+     that clicking a row won't spawn a new part — it'll drop the
+     held one. Inner filter buttons (chips, search, recent
+     thumbnails) stop responding via `holding` guards in the onclick
+     handlers, so the visual affordance matches behaviour. */
+  .req--holding .req__mark {
+    background: var(--alert);
+    box-shadow: 0 0 5px rgba(255, 110, 110, 0.6);
+  }
+  .req__drop {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    background: rgba(255, 110, 110, 0.08);
+    border: 1px solid rgba(255, 110, 110, 0.35);
+    color: var(--alert);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    text-shadow: 0 0 3px rgba(255, 110, 110, 0.4);
+    animation: req-drop-breath 1.6s ease-in-out infinite;
+  }
+  @keyframes req-drop-breath {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+  }
+  .req__drop-mark {
+    flex: 0 0 auto;
+    font-family: var(--font-display);
+    font-size: 14px;
+    line-height: 1;
+  }
+  .req__drop-text { flex: 1 1 auto; }
+  .req--holding .req__row-dispatch { display: none; }
+  .req--holding .req__row-btn:hover,
+  .req--holding .req__row-btn:focus-visible {
+    background: rgba(255, 110, 110, 0.1);
+    border-color: rgba(255, 110, 110, 0.3);
+  }
+  .req--holding .req__row-btn:hover .req__row-title,
+  .req--holding .req__row-btn:focus-visible .req__row-title {
+    color: var(--alert);
+    text-shadow: 0 0 3px rgba(255, 110, 110, 0.4);
+  }
+  .req--holding .req__row-btn:hover .req__row-icon,
+  .req--holding .req__row-btn:focus-visible .req__row-icon {
+    filter: drop-shadow(0 0 5px rgba(255, 110, 110, 0.4));
   }
 </style>

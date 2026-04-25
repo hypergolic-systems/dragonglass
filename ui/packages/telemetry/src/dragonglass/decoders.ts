@@ -20,6 +20,7 @@
 import { Quaternion, Vector3 } from 'three';
 import type { ClockData } from '../core/clock-data';
 import type { ConfigData } from '../core/config-data';
+import type { EditorStateData } from '../core/editor-state-data';
 import type { GameData } from '../core/game-data';
 import type { FlightData, SpeedDisplayMode } from '../core/flight-data';
 import type {
@@ -183,6 +184,16 @@ export function decodeConfig(raw: unknown): ConfigData {
   return (raw !== null && typeof raw === 'object' && !Array.isArray(raw))
     ? (raw as ConfigData)
     : {};
+}
+
+// EditorState wire is a one-tuple positional array [heldPart].
+// Scratch singleton to match the other decoders; callers must copy out.
+type EditorStateWire = [string | null];
+const editorStateScratch: { heldPart: string | null } = { heldPart: null };
+export function decodeEditorState(raw: unknown): EditorStateData {
+  const a = raw as EditorStateWire;
+  editorStateScratch.heldPart = a[0] ?? null;
+  return editorStateScratch as EditorStateData;
 }
 
 export function decodeGame(raw: unknown): GameData {

@@ -13,5 +13,7 @@ export function usePartCatalogOps(): PartCatalogOps {
   return {
     pickPart: (partName) =>
       telemetry.send(PartCatalogTopic, 'pickPart', partName),
+    deleteHeld: () =>
+      telemetry.send(PartCatalogTopic, 'deleteHeld'),
   };
 }

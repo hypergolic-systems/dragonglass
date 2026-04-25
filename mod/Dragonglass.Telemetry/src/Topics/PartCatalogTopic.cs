@@ -95,6 +95,21 @@ namespace Dragonglass.Telemetry.Topics
                     }
                     EditorLogic.fetch.SpawnPart(ap);
                     break;
+                case "deleteHeld":
+                    // UI's "drop on catalog = discard held part" gesture.
+                    // Mirrors stock's behaviour when the player clicks
+                    // the parts bin while a part is on the cursor:
+                    // DestroySelectedPart detaches the part and every
+                    // symmetry copy, fires PartDeleted events, and nulls
+                    // selectedPart. Idempotent when nothing is held.
+                    // `SelectedPart` is a static convenience; the
+                    // instance method `DestroySelectedPart` still hangs
+                    // off `EditorLogic.fetch`.
+                    if (HighLogic.LoadedScene != GameScenes.EDITOR) return;
+                    if (EditorLogic.fetch == null) return;
+                    if (EditorLogic.SelectedPart == null) return;
+                    EditorLogic.fetch.DestroySelectedPart();
+                    break;
                 default:
                     Debug.LogWarning(LogPrefix + "PartCatalogTopic: unknown op '" + op + "'");
                     break;

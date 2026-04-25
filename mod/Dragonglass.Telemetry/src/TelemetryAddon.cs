@@ -73,6 +73,7 @@ namespace Dragonglass.Telemetry
             gameObject.AddComponent<GameTopic>();
             gameObject.AddComponent<ClockTopic>();
             gameObject.AddComponent<ConfigTopic>();
+            gameObject.AddComponent<EditorStateTopic>();
             // PartSubscriptionManager is scene-agnostic — it listens
             // for subscribe/unsubscribe signals and attaches PartTopic
             // components to Parts themselves. Outside Flight,

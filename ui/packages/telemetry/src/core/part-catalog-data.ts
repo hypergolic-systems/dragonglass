@@ -100,4 +100,14 @@ export interface PartCatalogOps {
    * Unknown names are dropped server-side with a log line.
    */
   pickPart(partName: string): void;
+
+  /**
+   * Editor-only. Discards whatever part is currently attached to
+   * the cursor, mirroring KSP's drop-on-the-parts-bin gesture
+   * (`EditorLogic.DestroySelectedPart`). Idempotent: a no-op when
+   * the cursor is empty. The UI should gate this on
+   * `EditorStateTopic.heldPart !== null` before firing so clicks
+   * without a held part don't send dead traffic.
+   */
+  deleteHeld(): void;
 }

@@ -3,6 +3,7 @@ import {
   FlightTopic,
   GameTopic,
   ConfigTopic,
+  EditorStateTopic,
   AssemblyTopic,
   EngineTopic,
   PawTopic,
@@ -87,6 +88,10 @@ export class SimulatedKsp implements Ksp {
       // Dev mode uses an empty config — matches the plugin's default
       // when <modDir>/config.json is missing.
       (cb as Callback)({}, t);
+    } else if (topic.name === EditorStateTopic.name) {
+      // Dev mode has no stock cursor → nothing is ever held. The
+      // catalog's drop-to-discard gesture is a no-op here.
+      (cb as Callback)({ heldPart: null }, t);
     } else if (topic.name === StageTopic.name) {
       const stage = SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA;
       (cb as Callback)(stage, t);

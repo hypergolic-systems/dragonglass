@@ -29,6 +29,7 @@ import type { Ksp, Topic, OpArgs } from '../core/ksp';
 import {
   decodeClock,
   decodeConfig,
+  decodeEditorState,
   decodeGame,
   decodeFlight,
   decodeEngines,
@@ -51,6 +52,7 @@ export class DragonglassTelemetry implements Ksp {
   private readonly decoders: Record<string, Decoder> = {
     clock: decodeClock,
     config: decodeConfig,
+    editorState: decodeEditorState,
     game: decodeGame,
     flight: decodeFlight,
     engines: decodeEngines,
