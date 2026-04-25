@@ -15,3 +15,4 @@ export {
 } from './use-part-action-windows.svelte';
 export { usePartCatalog } from './use-part-catalog.svelte';
 export { usePartCatalogOps } from './use-part-catalog-ops.svelte';
+export { useRevertSignal } from './use-revert-signal.svelte';

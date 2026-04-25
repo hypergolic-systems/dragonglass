@@ -34,7 +34,7 @@
   // an earlier stage unless they press space and trigger a new
   // active stage.
 
-  import { useStageData, useStageOps } from '@dragonglass/telemetry/svelte';
+  import { useStageData, useStageOps, useRevertSignal } from '@dragonglass/telemetry/svelte';
   import type { StageEntry } from '@dragonglass/telemetry/core';
   import StageCard from './StageCard.svelte';
   import ContextMenu from './ContextMenu.svelte';
@@ -43,6 +43,7 @@
 
   const s = useStageData();
   const ops = useStageOps();
+  const revert = useRevertSignal();
 
   const ordered = $derived(
     [...s.stages].sort((a, b) => a.stageNum - b.stageNum),
@@ -93,6 +94,15 @@
   // dispatched from individual-cousin icons carry `group: false` so
   // the server treats them as per-part operations.
   let ungrouped = $state<Set<string>>(new Set());
+
+  // Drop ungrouping state on revert. After a revert-to-launch the
+  // ship resets to its assembled configuration — the toggles for
+  // "show this group as cousins" reflect a UI choice the pilot made
+  // about a now-defunct run, not a stable part-id-keyed preference.
+  $effect(() => {
+    void revert.revertCount;
+    ungrouped = new Set();
+  });
 
   function toggleUngroup(repId: string): void {
     const next = new Set(ungrouped);

@@ -14,6 +14,7 @@ import { getKsp } from './context';
 import { PawTopic, PartTopic } from '../core/topics';
 import type { PartData } from '../core/part-data';
 import { Smoothed, vec2Kinematic, type Vec2 } from '../smoothing';
+import { useRevertSignal } from './use-revert-signal.svelte';
 
 /**
  * PAWs auto-close when their anchor part drifts farther than this
@@ -204,6 +205,21 @@ export function usePartActionWindows(): PartActionWindowOps {
       unsubSmoothed();
     };
     windows.push(seed);
+  });
+
+  // Revert detection. Reverting to launch / VAB / editor walks the
+  // KSP universe time backwards; PAWs anchored to the previous run's
+  // parts have no sensible meaning afterwards (the parts'
+  // persistentIds are reused but the part instances are fresh, the
+  // anchor positions reset to t=0 of the new run, and any in-flight
+  // ops the user had started would target gone state). Easiest
+  // recovery: close every open PAW. The pilot can re-right-click
+  // anything they want back.
+  const revert = useRevertSignal();
+  $effect(() => {
+    void revert.revertCount;
+    for (const w of windows) w.unsubscribe();
+    windows.length = 0;
   });
 
   onDestroy(() => {
