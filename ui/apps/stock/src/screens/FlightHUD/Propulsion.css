@@ -315,16 +315,24 @@
 
 .prop__engine-dot {
   fill: transparent;
+  /* Per-group `--dot-opacity` (set inline) drives brightness from
+     the engine's actual throttle: 0 hides the dot, any throttle > 0
+     maps linearly into [0.25, 1.0]. Falls back to 0 (hidden) for
+     groups whose state class doesn't override below — idle,
+     flameout, shutdown all stay dark. Transition is short so the
+     dot tracks the throttle slider without visible lag; longer
+     fades chatter behind a continuously-changing input. */
   opacity: 0;
   transition:
     fill 280ms ease,
-    opacity 280ms ease,
+    opacity 120ms linear,
     filter 280ms ease;
 }
 
-/* Burning: teal ring + teal dot with a phased breathing glow on the
-   dot only — the glow reads as the plume concentrated at the bell's
-   center, not a halo around the whole footprint. */
+/* Burning: teal ring + teal dot. Brightness comes from
+   `--dot-opacity` so a thrust-limited engine reads dimmer than its
+   full-throttle siblings even when both are firing. The breathing
+   glow sits on `filter` (drop-shadow), independent of opacity. */
 .prop__engine--burning .prop__engine-ring {
   stroke: var(--accent);
   stroke-width: 0.018;
@@ -332,7 +340,7 @@
 
 .prop__engine--burning .prop__engine-dot {
   fill: var(--accent);
-  opacity: 1;
+  opacity: var(--dot-opacity, 1);
   filter: drop-shadow(0 0 2px var(--accent-glow));
   animation: engineBreathe 2.4s ease-in-out infinite;
   /* Per-engine phase offset inherited via the group's --i so a

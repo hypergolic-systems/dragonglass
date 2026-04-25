@@ -58,7 +58,7 @@ export class SimulatedKsp implements Ksp {
   // subscribers. No defensive cloning; frames are immutable per
   // their `readonly` types, so handing out the same reference is
   // safe.
-  private lastEngines: EngineData = buildEngines(0);
+  private lastEngines: EngineData = buildEngines(0, 0);
 
   // Per-part frame cache. Populated on first subscription for a given
   // partId; retained across (un)subscribes so returning subscribers get
@@ -249,7 +249,7 @@ export class SimulatedKsp implements Ksp {
       this.elapsed += dt;
 
       const flight = this.sim.tick(dt);
-      const engines = buildEngines(this.elapsed);
+      const engines = buildEngines(this.elapsed, flight.throttle);
       this.lastEngines = engines;
 
       this.dispatch(FlightTopic, flight);
@@ -395,7 +395,7 @@ function nearestPartToCursor(
 // fresh, deeply-immutable object whose reference changes every tick
 // so Svelte `$state` stores detect the update.
 
-function buildEngines(elapsed: number): EngineData {
+function buildEngines(elapsed: number, throttle: number): EngineData {
   const cycleT = elapsed % ENGINES_CYCLE_SECONDS;
   const engines: EnginePoint[] = ENGINES_SIM.map((e) => {
     const drain = CLUSTER_DRAIN_SECONDS[e.clusterId] ?? ENGINES_CYCLE_SECONDS;
@@ -407,11 +407,16 @@ function buildEngines(elapsed: number): EngineData {
       capacity: p.capacity,
     }));
     const status: EngineStatus = frac > 0 ? 'burning' : 'flameout';
+    // Mirror the C# side: only burning engines carry a meaningful
+    // throttle. A flamed-out engine with the slider still up
+    // shouldn't keep the rosette dot lit.
+    const engineThrottle = status === 'burning' ? throttle : 0;
     return {
       id: e.id,
       x: e.x,
       y: e.y,
       status,
+      throttle: engineThrottle,
       maxThrust: e.maxThrust,
       isp: e.isp,
       crossfeedPartIds: e.crossfeedPartIds,

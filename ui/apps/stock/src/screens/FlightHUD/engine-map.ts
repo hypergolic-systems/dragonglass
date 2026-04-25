@@ -73,6 +73,10 @@ export interface EngineRenderPoint {
   /** Circle radius in the same normalised units as cx/cy. */
   r: number;
   status: EngineStatus;
+  /** Per-engine post-everything throttle, 0..1 — passed through from
+   *  the source `EnginePoint` so callers don't need a parallel
+   *  lookup to drive the rosette's centre-dot brightness. */
+  throttle: number;
 }
 
 export interface EngineMapLayout {
@@ -143,6 +147,7 @@ interface RingState {
 interface MutablePoint {
   id: string;
   status: EngineStatus;
+  throttle: number;
   r: number;
   ringIdx: number;
   angle: number;
@@ -207,6 +212,7 @@ export function idealizeEngineMap(engines: readonly EnginePoint[]): EngineMapLay
   const pts: MutablePoint[] = engines.map((e, i) => ({
     id: e.id,
     status: e.status,
+    throttle: e.throttle,
     r: perR[i],
     ringIdx: -1,
     angle: rawAngles[i],
@@ -366,6 +372,7 @@ export function idealizeEngineMap(engines: readonly EnginePoint[]): EngineMapLay
     cy: rings[p.ringIdx].radius * Math.sin(p.angle),
     r: p.r,
     status: p.status,
+    throttle: p.throttle,
   }));
 
   // Fit-to-viewport. Scale both positions and radii uniformly so

@@ -242,13 +242,15 @@ export function decodeFlight(raw: unknown): FlightData {
 
 // Engine topic. Wire:
 //   [vesselId, [
-//     [id, mapX, mapY, status, maxThrust, isp,
+//     [id, mapX, mapY, status, throttle, maxThrust, isp,
 //      [crossfeedPartId, ...],
 //      [[propName, propAbbr, amount, capacity], ...]
 //     ], ...
 //   ]]
 // Status byte 0=burning, 1=flameout, 2=failed, 3=shutdown, 4=idle —
-// mirror of EngineTopic.Classify on the KSP side.
+// mirror of EngineTopic.Classify on the KSP side. Throttle is 0..1
+// post-everything (vessel throttle × per-engine thrust limiter), and
+// is forced to 0 by the C# side for any non-burning status.
 type EnginePropellantWire = [string, string, number, number];
 type EngineWire = [
   string,                                    // vesselId
@@ -257,6 +259,7 @@ type EngineWire = [
     number,                                  // mapX
     number,                                  // mapY
     0 | 1 | 2 | 3 | 4,                        // status byte
+    number,                                  // throttle (0..1)
     number,                                  // maxThrust
     number,                                  // isp
     string[],                                // crossfeed part ids
@@ -293,7 +296,7 @@ export function decodeEngines(raw: unknown): EngineData {
   const out = new Array<EnginePoint>(src.length);
   for (let i = 0; i < src.length; i++) {
     const e = src[i];
-    const propsRaw = e[7];
+    const propsRaw = e[8];
     const props = new Array(propsRaw.length);
     for (let j = 0; j < propsRaw.length; j++) {
       const p = propsRaw[j];
@@ -309,9 +312,10 @@ export function decodeEngines(raw: unknown): EngineData {
       x: e[1],
       y: e[2],
       status: ENGINE_STATUS[e[3]],
-      maxThrust: e[4],
-      isp: e[5],
-      crossfeedPartIds: e[6],
+      throttle: e[4],
+      maxThrust: e[5],
+      isp: e[6],
+      crossfeedPartIds: e[7],
       propellants: props,
     };
   }

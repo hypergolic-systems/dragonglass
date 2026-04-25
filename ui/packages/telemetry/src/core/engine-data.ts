@@ -57,6 +57,12 @@ export interface EnginePoint {
    *  as the UI's "up" axis when drawing the 2D engine map. */
   readonly y: number;
   readonly status: EngineStatus;
+  /** Per-engine post-everything throttle, 0..1. Already accounts for
+   *  the vessel's main throttle, the per-engine thrust limiter, and
+   *  the engine's response curves. The C# side forces this to 0
+   *  unless `status === 'burning'`, so flamed-out / shutdown engines
+   *  never carry a stale commanded value. */
+  readonly throttle: number;
   /** Configured maximum thrust (kN, vacuum). Stable across flight.
    *  The engine map uses this to size each circle so area encodes
    *  thrust magnitude. */

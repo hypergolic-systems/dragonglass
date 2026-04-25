@@ -36,12 +36,19 @@
 //
 // Wire format (positional array):
 //   data: [vesselId, [
-//     [id, mapX, mapY, status, maxThrust, isp,
+//     [id, mapX, mapY, status, throttle, maxThrust, isp,
 //      [crossfeedPartId, ...],
 //      [[propName, propAbbr, amount, capacity], ...]
 //     ], ...
 //   ]]
 //
+//     throttle  : per-engine post-everything throttle, 0..1. Sourced
+//                 from `ModuleEngines.currentThrottle`, which already
+//                 accounts for vessel throttle × thrust-limiter
+//                 (`thrustPercentage`) and the engine's response
+//                 curves. Forced to 0 unless status == burning so
+//                 flamed-out / shutdown engines don't show stale
+//                 commanded values.
 //     maxThrust : configured maximum thrust at standard conditions
 //                 (vacuum for most engines), kN. Stable across flight
 //                 — the client uses it to scale circle radius so the
@@ -77,6 +84,12 @@ namespace Dragonglass.Telemetry.Topics
         // user can read off a gauge but coarse enough that the topic
         // doesn't re-emit on every physics tick during climb.
         private const float IspEpsilon = 0.1f;
+        // Throttle changes continuously when the pilot rides the
+        // slider. 1 % is finer than the rosette dot's visible opacity
+        // step (which spans 25–100 % brightness for throttle 0..1) and
+        // keeps the topic from spamming on every physics tick during a
+        // smooth ramp.
+        private const float ThrottleEpsilon = 0.01f;
         // Per-engine, per-propellant fuel-level jitter threshold as a
         // fraction of capacity. Matches the old CurrentStageTopic
         // `FuelFractionEpsilon`.
@@ -87,6 +100,7 @@ namespace Dragonglass.Telemetry.Topics
             public string Id;
             public float MapX, MapY;
             public byte Status;
+            public float Throttle;
             public float MaxThrust;
             public float Isp;
             public List<string> CrossfeedPartIds;
@@ -243,12 +257,22 @@ namespace Dragonglass.Telemetry.Topics
                     ? es.Module.atmosphereCurve.Evaluate(atmPressure)
                     : 0f;
 
+                byte status = Classify(es.Module, es.Part);
+                // Only burning engines have a meaningful throttle.
+                // currentThrottle on a flamed-out / shutdown engine
+                // can hold a stale commanded value; gating to 0 keeps
+                // the rosette dot dark for any non-firing engine.
+                float throttle = status == 0
+                    ? Mathf.Clamp01(es.Module.currentThrottle)
+                    : 0f;
+
                 _scratch.Add(new EngineFrame
                 {
                     Id = es.Part.flightID.ToString(),
                     MapX = local.x,
                     MapY = local.z,
-                    Status = Classify(es.Module, es.Part),
+                    Status = status,
+                    Throttle = throttle,
                     MaxThrust = es.Module.maxThrust,
                     Isp = isp,
                     CrossfeedPartIds = es.CrossfeedPartIds,
@@ -285,6 +309,7 @@ namespace Dragonglass.Telemetry.Topics
                 EngineFrame b = next[i];
                 if (a.Id != b.Id) return true;
                 if (a.Status != b.Status) return true;
+                if (Mathf.Abs(a.Throttle - b.Throttle) > ThrottleEpsilon) return true;
                 if (Mathf.Abs(a.MapX - b.MapX) > PosEpsilon) return true;
                 if (Mathf.Abs(a.MapY - b.MapY) > PosEpsilon) return true;
                 if (Mathf.Abs(a.Isp - b.Isp) > IspEpsilon) return true;
@@ -414,6 +439,8 @@ namespace Dragonglass.Telemetry.Topics
                 Json.WriteFloat(sb, e.MapY);
                 sb.Append(',');
                 sb.Append(e.Status);
+                sb.Append(',');
+                Json.WriteFloat(sb, e.Throttle);
                 sb.Append(',');
                 Json.WriteFloat(sb, e.MaxThrust);
                 sb.Append(',');

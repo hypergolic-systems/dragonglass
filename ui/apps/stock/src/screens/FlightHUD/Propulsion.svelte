@@ -283,8 +283,21 @@
              quantity (not a proportion of the engine radius), so
              the radio-button silhouette stays consistent whether
              the cluster is scaled up to fill the panel (sparse
-             layouts) or shrunk down to fit (dense stacks). -->
-        <g class="prop__engine prop__engine--{p.status}" style="--i: {i};">
+             layouts) or shrunk down to fit (dense stacks).
+
+             Dot brightness tracks the engine's actual throttle —
+             0 hides the dot entirely (no flame), and any throttle
+             above 0 maps linearly into [0.25, 1.0] opacity so even
+             a low throttle still reads as a lit bell rather than
+             vanishing into the muted ring. The throttle already
+             accounts for per-engine thrust limiters, so a single
+             limited engine in a cluster reads dimmer than its
+             siblings. Failed engines override this with their own
+             pulsing red dot — see the CSS. -->
+        <g
+          class="prop__engine prop__engine--{p.status}"
+          style="--i: {i}; --dot-opacity: {p.throttle > 0 ? 0.25 + 0.75 * p.throttle : 0};"
+        >
           <circle class="prop__engine-ring" cx={p.cx} cy={p.cy} r={p.r} />
           <circle
             class="prop__engine-dot"
