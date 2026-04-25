@@ -18,7 +18,15 @@
 // Wire format (positional):
 //   data: [persistentId, name, [screenX, screenY, visible],
 //          [[resourceName, abbr, available, capacity], ...],
-//          [module, ...]]
+//          [module, ...],
+//          distanceFromActiveM]
+//
+// `distanceFromActiveM` is the metres between this part's transform
+// and the active vessel's root in the current frame. The UI uses it
+// to auto-close PAWs whose anchor part has drifted out of useful
+// range — KSP's KSC-area extended physics keeps decoupled stages
+// loaded past 2 km, so the per-part `OnDestroy` tombstone never
+// fires for the typical "drift away during launch" case.
 //
 // Each `module` row is itself tagged by a one-character kind in its
 // first element, then `moduleName`, then a per-kind typed tail.
@@ -192,6 +200,11 @@ namespace Dragonglass.Telemetry.Topics
 
         private const float ScreenEpsilonPx = 0.5f;
         private const double ResourceFractionEpsilon = 0.005;  // 0.5% of capacity
+        // 1 m diff threshold for distance — sub-metre fluctuations
+        // would re-broadcast the topic at the 10 Hz tick floor while
+        // the vessel is moving; 1 m keeps the UI's threshold check
+        // accurate without wasting bandwidth on jitter.
+        private const float DistanceEpsilonM = 1f;
 
         private struct ResourceFrame
         {
@@ -401,6 +414,13 @@ namespace Dragonglass.Telemetry.Topics
         private float _screenX;
         private float _screenY;
         private bool _visible;
+        // Distance, in metres, from the active vessel's root to this
+        // part's transform. The UI uses it to auto-close PAWs whose
+        // anchor part has drifted out of useful range — `OnDestroy`
+        // alone isn't enough because KSP's KSC-area extended physics
+        // bubble keeps decoupled stages alive at >2 km, so the part
+        // GameObject never destroys and the tombstone never fires.
+        private float _distanceFromActiveM;
         private readonly List<ResourceFrame> _resources = new List<ResourceFrame>();
         private readonly List<ResourceFrame> _scratch = new List<ResourceFrame>();
         private readonly List<ModuleFrame> _modules = new List<ModuleFrame>();
@@ -432,6 +452,34 @@ namespace Dragonglass.Telemetry.Topics
             // + a broadcaster tick on the same frame would otherwise
             // emit a placeholder.
             SampleFrame();
+        }
+
+        private void OnDestroy()
+        {
+            // Two ways our Destroy can fire:
+            //   • The pilot closed the PAW (transport's last
+            //     subscriber dropped) — PartSubscriptionManager calls
+            //     `Destroy(pt)` on just this component. The Part
+            //     sibling stays alive, `_part != null`. The UI
+            //     already initiated the close so we emit nothing.
+            //   • The Part GameObject itself is going away (decoupled
+            //     and unloaded past 2.2 km, exploded, editor-deleted,
+            //     scene torn down). Unity destroys the GameObject,
+            //     which destroys every component on it; sibling
+            //     references Unity-null at OnDestroy time. We raise
+            //     PartGoneBus so the broadcaster ships a tombstone
+            //     frame on this part's wire and the UI closes the
+            //     PAW.
+            //
+            // We cannot rely on `GameEvents.onVesselUnloaded` /
+            // `onVesselWillDestroy` here: stock fires those AFTER
+            // calling `parts.Clear()` and destroying the root part
+            // (Vessel.cs:2325-2345), so by then the persistentIds
+            // have nowhere to come from.
+            if (_part == null && !string.IsNullOrEmpty(_persistentIdStr))
+            {
+                PartGoneBus.Raise(_name);
+            }
         }
 
         private void Update()
@@ -467,6 +515,26 @@ namespace Dragonglass.Telemetry.Topics
                 if (Mathf.Abs(nx - _screenX) > ScreenEpsilonPx) { _screenX = nx; changed = true; }
                 if (Mathf.Abs(ny - _screenY) > ScreenEpsilonPx) { _screenY = ny; changed = true; }
                 if (nv != _visible) { _visible = nv; changed = true; }
+            }
+
+            // Distance from the active vessel. Editor scene has no
+            // active vessel — leave at 0, which the UI's threshold
+            // check treats as "co-located" so editor PAWs never
+            // auto-close on distance.
+            float nd = 0f;
+            if (!_isEditor && _part.transform != null
+                && FlightGlobals.fetch != null
+                && FlightGlobals.ActiveVessel != null
+                && FlightGlobals.ActiveVessel.transform != null)
+            {
+                nd = Vector3.Distance(
+                    _part.transform.position,
+                    FlightGlobals.ActiveVessel.transform.position);
+            }
+            if (Mathf.Abs(nd - _distanceFromActiveM) > DistanceEpsilonM)
+            {
+                _distanceFromActiveM = nd;
+                changed = true;
             }
 
             // Resources. Sample into scratch, compare positionally
@@ -1970,6 +2038,8 @@ namespace Dragonglass.Telemetry.Topics
                 WriteModuleFrame(sb, _modules[i]);
             }
             sb.Append(']');
+            sb.Append(',');
+            Json.WriteFloat(sb, _distanceFromActiveM);
             sb.Append(']');
         }
 

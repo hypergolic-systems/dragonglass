@@ -5,11 +5,16 @@
 // long stretches and only broadcasts on actual state changes.
 //
 // Wire format (positional array):
-//   data: [scene, activeVesselId, timewarp]
+//   data: [scene, activeVesselId, timewarp, mapActive]
 //     scene           : GameScenes enum as string, e.g. "FLIGHT"
 //     activeVesselId  : GUID string of the active vessel, or null
 //     timewarp        : multiplier as a number. 1-4 → physics warp;
 //                       5+ → on-rails warp (5, 10, 50, 100, 1000, …)
+//     mapActive       : true when the flight scene is in map view.
+//                       Drives "hide PAWs" in the UI — stock KSP
+//                       hides them too because the screen-space
+//                       projection of physical parts isn't meaningful
+//                       in map space.
 
 using System;
 using System.Collections.Generic;
@@ -45,6 +50,13 @@ namespace Dragonglass.Telemetry.Topics
             set { if (_timewarp != value) { _timewarp = value; MarkDirty(); } }
         }
 
+        private bool _mapActive;
+        public bool MapActive
+        {
+            get { return _mapActive; }
+            set { if (_mapActive != value) { _mapActive = value; MarkDirty(); } }
+        }
+
         private void Update()
         {
             Scene = HighLogic.LoadedScene;
@@ -58,6 +70,11 @@ namespace Dragonglass.Telemetry.Topics
                 ActiveVesselId = null;
             }
             Timewarp = TimeWarp.CurrentRate;
+            // Stock's `MapView.MapIsEnabled` is a static bool the rest
+            // of KSP keys off; it flips on M / map-button press in
+            // Flight, stays false otherwise.
+            MapActive = HighLogic.LoadedScene == GameScenes.FLIGHT
+                && MapView.MapIsEnabled;
         }
 
         public override void HandleOp(string op, List<object> args)
@@ -87,6 +104,8 @@ namespace Dragonglass.Telemetry.Topics
                 Json.WriteNull(sb);
             sb.Append(',');
             Json.WriteDouble(sb, _timewarp);
+            sb.Append(',');
+            sb.Append(_mapActive ? "true" : "false");
             sb.Append(']');
         }
     }

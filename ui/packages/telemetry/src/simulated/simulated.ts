@@ -40,6 +40,7 @@ const SIM_GAME: GameData = {
   scene: 'FLIGHT',
   activeVesselId: 'sim-vessel',
   timewarp: 1,
+  mapActive: false,
 };
 
 type Callback = (frame: any, tObserved: number) => void;
@@ -316,9 +317,11 @@ function buildPart(persistentId: string, elapsed: number, drain = true): PartDat
     return {
       persistentId,
       name: `UNKNOWN PART ${persistentId}`,
+      gone: false,
       screen: null,
       resources: [],
       modules: [],
+      distanceFromActiveM: 0,
     };
   }
   // `drain=false` (editor mode) keeps the fixture's declared amount /
@@ -330,9 +333,11 @@ function buildPart(persistentId: string, elapsed: number, drain = true): PartDat
   return {
     persistentId,
     name: fixture.name,
+    gone: false,
     screen: screenPosFor(fixture, elapsed),
     resources,
     modules: fixture.modules,
+    distanceFromActiveM: 0,
   };
 }
 

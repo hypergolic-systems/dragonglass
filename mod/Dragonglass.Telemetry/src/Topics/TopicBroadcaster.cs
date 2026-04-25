@@ -51,6 +51,15 @@ namespace Dragonglass.Telemetry.Topics
             _registry = registry;
             _server = server;
             _server.ClientConnected += OnClientConnected;
+            // Tombstones for per-part topics. PartTopic raises the
+            // bus from its OnDestroy when the underlying Part
+            // GameObject is being torn down (decoupled-and-unloaded,
+            // exploded, editor-deleted) — by that point the topic is
+            // already unregistered, so the normal IsDirty flush path
+            // can't pick it up; we send a final empty-payload frame
+            // directly. Drop the cached snapshot so a reconnecting
+            // client doesn't replay the dead topic's last live frame.
+            PartGoneBus.PartTopicDying += OnPartTopicDying;
         }
 
         /// <summary>
@@ -101,6 +110,13 @@ namespace Dragonglass.Telemetry.Topics
             sb.Append(dataJson);
             sb.Append('}');
             return sb.ToString();
+        }
+
+        private void OnPartTopicDying(string topicName)
+        {
+            string frame = BuildFrame(_sb, topicName, _lastFlushTime, "[]");
+            _server.Broadcast(frame);
+            _lastDataByTopic.Remove(topicName);
         }
 
         private void OnClientConnected(WebSocketConnection conn)

@@ -602,6 +602,13 @@ export interface PartData {
   readonly persistentId: string;
   /** Localized part title (e.g. "RT-10 'Hammer' Solid Fuel Booster"). */
   readonly name: string;
+  /**
+   * Tombstone flag. The wire encodes a destroyed part as an empty
+   * data array on its `part/<id>` topic; the decoder maps that to
+   * `gone: true` and zeroes everything else. PAW consumers see this
+   * and close their window. Live frames always carry `gone: false`.
+   */
+  readonly gone: boolean;
   /** Viewport-space projection of the part centre; null until first frame. */
   readonly screen: PartScreenPos | null;
   readonly resources: readonly PartResourceData[];
@@ -609,6 +616,16 @@ export interface PartData {
    *  (`Part.Modules`). The order is stable for a given part, so it's
    *  safe to use the index to address a module in op calls. */
   readonly modules: readonly PartModuleData[];
+  /**
+   * Metres between this part's transform and the active vessel's
+   * root, sampled server-side once per broadcaster tick. PAW
+   * consumers use it to auto-close windows whose anchor has drifted
+   * out of useful range (KSP's extended ground-loaded area around
+   * KSC keeps decoupled stages alive at >2 km, so the destruction
+   * tombstone alone misses the typical decouple-and-drift case).
+   * Always 0 in editor scenes (no active vessel).
+   */
+  readonly distanceFromActiveM: number;
 }
 
 /**

@@ -15,6 +15,17 @@ import { PawTopic, PartTopic } from '../core/topics';
 import type { PartData } from '../core/part-data';
 import { Smoothed, vec2Kinematic, type Vec2 } from '../smoothing';
 
+/**
+ * PAWs auto-close when their anchor part drifts farther than this
+ * from the active vessel. Comfortably inside KSP's nominal physics
+ * range (~2.2 km) so we close before the part unloads, but well
+ * outside reasonable intra-vessel anchor separation. See the
+ * server-side comment on PartTopic's wire format for why the
+ * destruction tombstone alone can't close PAWs in the typical
+ * decouple-and-drift case.
+ */
+const MAX_PAW_DISTANCE_M = 500;
+
 export interface PartActionWindow {
   readonly persistentId: string;
   /** Live telemetry for this part. `null` until the first frame. */
@@ -136,12 +147,38 @@ export function usePartActionWindows(): PartActionWindowOps {
     const unsubPart = telemetry.subscribe(PartTopic(persistentId), (frame, tObserved) => {
       const w = windows.find((x) => x.persistentId === persistentId);
       if (!w) return;
+      // Tombstone: server emits an empty-array frame on `part/<id>`
+      // when the underlying KSP Part GameObject is being destroyed
+      // (decoupled-and-unloaded past 2.2 km, exploded, editor-deleted).
+      // The decoder maps that to `gone: true`. There's no part to
+      // anchor to anymore, so close the PAW. Done before we touch
+      // any other frame fields because the tombstone frame carries
+      // no real state to merge in.
+      if (frame.gone) {
+        close(persistentId);
+        return;
+      }
+      // Distance auto-close. The destruction tombstone above only
+      // fires when the Part GameObject is actually torn down, but
+      // KSP's extended ground-loaded area around KSC keeps decoupled
+      // stages alive at >2 km. We close the PAW once the anchor part
+      // has drifted past `MAX_PAW_DISTANCE_M` from the active vessel
+      // — beyond that the PAW can't usefully be looked at anyway,
+      // and freeing the topic subscription stops the server sampling
+      // it. Threshold is conservative: 500 m is well clear of normal
+      // intra-vessel separation but well under physics range.
+      if (frame.distanceFromActiveM > MAX_PAW_DISTANCE_M) {
+        close(persistentId);
+        return;
+      }
       w.data = {
         persistentId: frame.persistentId,
         name: frame.name,
+        gone: false,
         screen: frame.screen,
         resources: frame.resources,
         modules: frame.modules,
+        distanceFromActiveM: frame.distanceFromActiveM,
       };
       // Only feed observations while the projection is meaningful;
       // off-screen frames carry stale or sentinel coordinates.

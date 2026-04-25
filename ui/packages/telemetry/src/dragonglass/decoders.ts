@@ -81,7 +81,7 @@ import type {
 import { CATEGORY_BY_INDEX } from '../core/part-catalog-data';
 
 type ClockWire = [number, number | null];
-type GameWire = [string, string | null, number];
+type GameWire = [string, string | null, number, boolean];
 type FlightWire = [
   string,                              // vesselId
   number,                              // altitudeAsl
@@ -116,6 +116,7 @@ interface GameMutable {
   scene: string;
   activeVesselId: string | null;
   timewarp: number;
+  mapActive: boolean;
 }
 
 interface FlightMutable {
@@ -145,6 +146,7 @@ const gameScratch: GameMutable = {
   scene: '',
   activeVesselId: null,
   timewarp: 1,
+  mapActive: false,
 };
 
 const flightScratch: FlightMutable = {
@@ -201,6 +203,7 @@ export function decodeGame(raw: unknown): GameData {
   gameScratch.scene = a[0];
   gameScratch.activeVesselId = a[1];
   gameScratch.timewarp = a[2];
+  gameScratch.mapActive = a[3];
   return gameScratch as GameData;
 }
 
@@ -434,16 +437,22 @@ type PartWire = [
   string,                                          // name
   [number, number, boolean],                       // screen: [x, y, visible]
   PartResourceWire[],                              // resources
-  PartModuleWire[]?,                               // modules (optional for forward-compat)
+  PartModuleWire[],                                // modules
+  number,                                          // distanceFromActiveM
 ];
 
 interface PartMutable {
   persistentId: string;
   name: string;
+  gone: boolean;
   screen: { x: number; y: number; visible: boolean } | null;
   resources: readonly PartResourceData[];
   modules: readonly PartModuleData[];
+  distanceFromActiveM: number;
 }
+
+const EMPTY_RESOURCES: readonly PartResourceData[] = [];
+const EMPTY_MODULES: readonly PartModuleData[] = [];
 
 // Fresh per-decode rather than a module-scoped scratch: multiple open
 // PAWs share this decoder, and a per-decoder scratch would let the
@@ -451,6 +460,22 @@ interface PartMutable {
 // reentrant dispatch. The allocation is cheap at 10 Hz × N open
 // PAWs (N is ≤ ~8 in realistic use).
 export function decodePart(raw: unknown): PartData {
+  // Tombstone: the broadcaster sends `[]` on `part/<id>` when the
+  // sibling Part GameObject is being destroyed (PartGoneBus on the
+  // server). We map that to a sentinel PartData with `gone: true`;
+  // PAW consumers close on the flag. Check before the PartWire cast
+  // because `[]` doesn't satisfy the live-frame tuple shape.
+  if (Array.isArray(raw) && raw.length === 0) {
+    return {
+      persistentId: '',
+      name: '',
+      gone: true,
+      screen: null,
+      resources: EMPTY_RESOURCES,
+      modules: EMPTY_MODULES,
+      distanceFromActiveM: 0,
+    };
+  }
   const a = raw as PartWire;
   const screenRaw = a[2];
   const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0
@@ -478,9 +503,11 @@ export function decodePart(raw: unknown): PartData {
   const frame: PartMutable = {
     persistentId: a[0],
     name: a[1],
+    gone: false,
     screen,
     resources,
     modules,
+    distanceFromActiveM: a[5] ?? 0,
   };
   return frame as PartData;
 }

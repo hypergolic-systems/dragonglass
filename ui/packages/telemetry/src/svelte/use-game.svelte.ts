@@ -3,7 +3,7 @@ import { GameTopic } from '../core/topics';
 import type { GameData } from '../core/game-data';
 
 function defaults(): GameData {
-  return { scene: '', activeVesselId: null, timewarp: 1 };
+  return { scene: '', activeVesselId: null, timewarp: 1, mapActive: false };
 }
 
 /**
