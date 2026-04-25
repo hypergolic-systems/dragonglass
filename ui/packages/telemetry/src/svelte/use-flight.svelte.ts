@@ -91,16 +91,29 @@ export function useFlightData(): FlightData {
       store.deltaVStage = frame.deltaVStage;
       store.twrStage = frame.twrStage;
       store.speedDisplayMode = frame.speedDisplayMode;
-      // Nested class instances (Vector3 / Quaternion) — replace
-      // the reference. Svelte doesn't deep-proxy class instances,
-      // so copying into the existing instance wouldn't notify
-      // dependents. Frames publish fresh instances per tick, so
-      // this is a simple pointer swap.
-      store.surfaceVelocity = frame.surfaceVelocity;
-      store.orbitalVelocity = frame.orbitalVelocity;
-      store.orientation = frame.orientation;
-      store.angularVelocity = frame.angularVelocity;
-      store.targetVelocity = frame.targetVelocity;
+      // Nested class instances (Vector3 / Quaternion) — must be
+      // freshly allocated per tick so Svelte's `$state` proxy
+      // sees a new reference and triggers reactivity. The
+      // transport's decoder uses scratch instances (one Vector3
+      // mutated in place per frame) for GC pressure; assigning
+      // that scratch directly here gives Svelte the same
+      // reference every tick — `Object.is(old, new)` is true,
+      // reactivity doesn't fire, and `s.surfaceVelocity.length()`
+      // freezes at whatever value happened to be in the first
+      // frame received. (`useSmoothedOrientation` doesn't hit
+      // this because it subscribes to the raw transport stream
+      // directly; the navball updated even while the speed tape
+      // didn't.)
+      const sv = frame.surfaceVelocity;
+      store.surfaceVelocity = new Vector3(sv.x, sv.y, sv.z);
+      const ov = frame.orbitalVelocity;
+      store.orbitalVelocity = new Vector3(ov.x, ov.y, ov.z);
+      const o = frame.orientation;
+      store.orientation = new Quaternion(o.x, o.y, o.z, o.w);
+      const av = frame.angularVelocity;
+      store.angularVelocity = new Vector3(av.x, av.y, av.z);
+      const tv = frame.targetVelocity;
+      store.targetVelocity = new Vector3(tv.x, tv.y, tv.z);
     });
   }
   return store as FlightData;
