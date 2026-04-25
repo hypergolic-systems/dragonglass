@@ -13,7 +13,7 @@ export function formatAltitude(v: number): { value: string; unit: string } {
   if (v >= 1e9) return { value: (v / 1e9).toFixed(1), unit: 'Gm' };
   if (v >= 1e7) return { value: groupInt(v / 1e6), unit: 'Mm' };
   if (v >= 1e6) return { value: (v / 1e6).toFixed(1), unit: 'Mm' };
-  if (v >= 10000) return { value: groupInt(v / 1000), unit: 'km' };
+  if (v >= 10000) return { value: (v / 1000).toFixed(1), unit: 'km' };
   return { value: groupInt(v), unit: 'm' };
 }
 
