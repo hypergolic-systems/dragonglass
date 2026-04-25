@@ -19,8 +19,12 @@
 //
 // Three phases:
 //
-//   1. Radius per engine. Area ∝ thrust (so r ∝ √thrust), mapped
-//      to a [R_MIN, R_MAX] visual range. Unchanged from before.
+//   1. Radius per engine. Area ∝ thrust, so r ∝ √thrust under a
+//      single scale: the vessel's largest engine sits at R_MAX,
+//      every smaller engine scales by √(t/tMax). R_MIN is only
+//      a legibility floor — engines with extreme thrust ratios
+//      (Spider next to Mammoth, ~1:60) clamp there rather than
+//      shrinking to a pixel speck.
 //
 //   2. Ring binning. Sort engines by distance from the centroid;
 //      greedy-cluster into rings with a distance tolerance that
@@ -89,11 +93,13 @@ const OUTER_R = 0.88;
 // still fill the width but sparse layouts leave breathing room.
 const MAX_ENGINE_R_FRACTION = 0.5;
 
-// Visual radius range for engine circles. Tuned so:
-//   - a Mammoth-sized engine (near R_MAX) reads as a substantial
-//     disc against the 2×2 viewport,
-//   - a Spider-sized engine (near R_MIN) still renders as a
-//     legible circle rather than a pixel speck.
+// Visual radius range for engine circles. R_MAX is the visual
+// size assigned to the vessel's largest engine; smaller engines
+// scale down by √(t/tMax). R_MIN is a legibility floor that only
+// kicks in when an engine's thrust drops below ~(R_MIN/R_MAX)² ≈
+// 15 % of the largest engine's thrust, so a Spider next to a
+// Mammoth still renders as a legible disc rather than a pixel
+// speck. Final fit-to-viewport scales both up.
 const R_MIN = 0.055;
 const R_MAX = 0.14;
 // Used when no thrust info is available (stock engine part with
@@ -156,26 +162,22 @@ export function idealizeEngineMap(engines: readonly EnginePoint[]): EngineMapLay
   my /= engines.length;
 
   // ----- Per-engine radius from max thrust. Area ∝ thrust, so
-  //       r ∝ √thrust. Identical thrusts (or missing data) fall
-  //       back to R_DEFAULT. -----
+  //       r ∝ √thrust under a single scale: the vessel's largest
+  //       engine sits at R_MAX, smaller engines scale down by
+  //       √(t/tMax). R_MIN is a legibility floor — without it,
+  //       a Spider next to a Mammoth would shrink to a pixel
+  //       speck. Engines with no thrust info fall back to
+  //       R_DEFAULT. -----
   const thrusts = engines.map((e) => Math.max(0, e.maxThrust));
   const haveThrust = thrusts.some((t) => t > 0);
-  let sqTMin = Infinity;
-  let sqTMax = 0;
+  let tMax = 0;
   if (haveThrust) {
-    for (const t of thrusts) {
-      if (t <= 0) continue;
-      const s = Math.sqrt(t);
-      if (s < sqTMin) sqTMin = s;
-      if (s > sqTMax) sqTMax = s;
-    }
+    for (const t of thrusts) if (t > tMax) tMax = t;
   }
-  const sqSpan = sqTMax - sqTMin;
   const radiusFor = (t: number): number => {
     if (!haveThrust || t <= 0) return R_DEFAULT;
-    if (sqSpan < 1e-6) return (R_MIN + R_MAX) / 2;
-    const n = (Math.sqrt(t) - sqTMin) / sqSpan;
-    return R_MIN + n * (R_MAX - R_MIN);
+    if (tMax < 1e-6) return R_MAX;
+    return Math.max(R_MIN, R_MAX * Math.sqrt(t / tMax));
   };
 
   // Raw polar components. Flip Y when deriving the UI angle so
