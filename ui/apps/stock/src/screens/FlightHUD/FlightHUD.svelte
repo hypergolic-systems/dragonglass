@@ -1,14 +1,18 @@
 <script lang="ts">
   import { useFlightData, useFlightOps } from '@dragonglass/telemetry/svelte';
-  import Navball from './Navball.svelte';
-  import CurvedTape from './CurvedTape.svelte';
-  import NavballIndicator from './NavballIndicator.svelte';
-  import Propulsion from './Propulsion.svelte';
-  import StagingStack from './StagingStack.svelte';
+  import {
+    Navball,
+    CurvedTape,
+    NavballIndicator,
+    Propulsion,
+    StagingStack,
+    formatSurfaceSpeed,
+    formatAltitude,
+    SPEED_SCALE,
+    ALTITUDE_SCALE,
+  } from '@dragonglass/instruments';
   import PartActionWindowHost from './PartActionWindowHost.svelte';
-  import { formatSurfaceSpeed, formatAltitude } from './format';
-  import { SPEED_SCALE, ALTITUDE_SCALE } from './tape-scales';
-  import './FlightHUD.css';
+  import '@dragonglass/instruments/flight.css';
 
   const s = useFlightData();
   const ops = useFlightOps();

@@ -1,11 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
-    "emitDeclarationOnly": true,
-    "declaration": true,
-    "declarationMap": true,
-    "outDir": "dist/types"
+    "noEmit": true,
+    "verbatimModuleSyntax": true
   },
-  "include": ["src"]
+  "include": ["src/**/*.ts", "src/**/*.svelte.ts", "src/**/*.svelte"]
 }

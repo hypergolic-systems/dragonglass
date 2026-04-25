@@ -7,9 +7,9 @@
   // which has no meaning on the assembly floor.
 
   import PartActionWindowHost from './FlightHUD/PartActionWindowHost.svelte';
-  import StagingStack from './FlightHUD/StagingStack.svelte';
+  import { StagingStack } from '@dragonglass/instruments';
   import PartCatalogPanel from './PartCatalogPanel.svelte';
-  import './FlightHUD/FlightHUD.css';
+  import '@dragonglass/instruments/flight.css';
 
   interface Props {
     scene: string;
