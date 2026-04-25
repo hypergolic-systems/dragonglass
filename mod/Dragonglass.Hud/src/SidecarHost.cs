@@ -40,10 +40,31 @@ namespace Dragonglass.Hud
         // loopback bind in Dragonglass.Telemetry.
         private const string TelemetryWsUrl = "ws://127.0.0.1:8787/";
 
-        // The bare specifier the synthesized shell HTML imports.
-        // Resolved by the sidecar's import map to UI/_runtime/stock.js.
-        // Same constant matches the entry the runtime build emits.
-        private const string EntrySpecifier = "@dragonglass/stock";
+        // The bare specifier the synthesized shell HTML imports,
+        // mapped via the sidecar's import map to a JS module under
+        // GameData/<Mod>/UI/. Defaults to stock; mods can replace it
+        // via OverrideEntry before the SidecarBootstrap coroutine
+        // fires EnsureRunning (i.e. during their own
+        // Startup.Instantly Awake — bootstrap yields one frame so
+        // overrides registered there land before spawn).
+        private static string _entrySpecifier = "@dragonglass/stock";
+
+        /// <summary>
+        /// Override the import-map specifier the synthesized shell
+        /// imports. Pass a bare specifier like "@nova/hud" or
+        /// "@somemod/index". Must be called during Awake of a
+        /// Startup.Instantly KSPAddon — sidecar spawn is deferred
+        /// one frame past Instantly to give override callers a
+        /// chance to register. Last-writer-wins; no priority
+        /// semantics. Empty/null inputs are ignored.
+        /// </summary>
+        public static void OverrideEntry(string specifier)
+        {
+            if (!string.IsNullOrEmpty(specifier))
+            {
+                _entrySpecifier = specifier;
+            }
+        }
 
         private static readonly object Lock = new object();
         private static Process _proc;
@@ -131,7 +152,7 @@ namespace Dragonglass.Hud
                         FileName = binary,
                         Arguments = SessionId + " " + TelemetryWsUrl
                             + " --gamedata=\"" + gameDataDir + "\""
-                            + " --entry=" + EntrySpecifier
+                            + " --entry=" + _entrySpecifier
                             + " --device-scale=" +
                             deviceScale.ToString("0.###",
                                 System.Globalization.CultureInfo.InvariantCulture),
