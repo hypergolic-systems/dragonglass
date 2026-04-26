@@ -106,14 +106,23 @@
     // IOSurface. CEF rotates between ~2 surfaces so this cache stays
     // at size 2 in steady state — one MTLTexture creation per
     // distinct CEF IOSurface we ever see.
+    IOSurfaceRef cefSurface = (IOSurfaceRef)cefHandle;
+    // Wrap CEF's surface using its OWN dimensions, not the canvas's.
+    // Right after a resize, CEF still has in-flight paints holding the
+    // old (smaller) surface; wrapping it with the new canvas dims
+    // makes Metal abort the process with `bytesPerRow must be greater
+    // or equal to ...`. Querying the surface is two field reads, only
+    // on cache miss.
+    uint32_t srcW = (uint32_t)IOSurfaceGetWidth(cefSurface);
+    uint32_t srcH = (uint32_t)IOSurfaceGetHeight(cefSurface);
+
     NSNumber* key = @(cefID);
     id<MTLTexture> src = self.srcCache[key];
     if (!src) {
-        IOSurfaceRef cefSurface = (IOSurfaceRef)cefHandle;
         MTLTextureDescriptor* desc = [MTLTextureDescriptor
             texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                         width:self.width
-                                        height:self.height
+                                         width:srcW
+                                        height:srcH
                                      mipmapped:NO];
         desc.usage = MTLTextureUsageShaderRead;
         desc.storageMode = MTLStorageModeShared;
@@ -125,17 +134,22 @@
             return;
         }
         self.srcCache[key] = src;
-        fprintf(stderr, "[dragonglass] blitter: cached CEF src for id=0x%x (pool now %lu)\n",
-                cefID, (unsigned long)self.srcCache.count);
+        fprintf(stderr, "[dragonglass] blitter: cached CEF src for id=0x%x %ux%u (pool now %lu)\n",
+                cefID, srcW, srcH, (unsigned long)self.srcCache.count);
     }
 
     // Issue a single MTLBlit encoder copy from CEF's source into our
     // canvas. No fencing — we accept single-frame tearing risk in
     // exchange for simplicity; at 60fps it's invisible.
+    // Copy size is min(src, canvas) on each axis: a stale CEF surface
+    // smaller than the canvas lands in the top-left until CEF catches
+    // up; an oversized one is clipped instead of overrunning the dest.
     id<MTLCommandBuffer> cmd = [self.queue commandBuffer];
     id<MTLBlitCommandEncoder> enc = [cmd blitCommandEncoder];
     MTLOrigin origin = {0, 0, 0};
-    MTLSize size = MTLSizeMake(self.width, self.height, 1);
+    uint32_t copyW = srcW < self.width ? srcW : self.width;
+    uint32_t copyH = srcH < self.height ? srcH : self.height;
+    MTLSize size = MTLSizeMake(copyW, copyH, 1);
     [enc copyFromTexture:src
              sourceSlice:0
              sourceLevel:0
