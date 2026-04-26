@@ -11,7 +11,8 @@ ui-dev:
 ui-dev-workbench:
     cd ui && npm run dev:workbench
 
-ui-build:
+# Typechecks first so build never ships a bundle that wouldn't pass CI.
+ui-build: ui-typecheck
     cd ui && npm run build
 
 # Build the Dragonglass runtime: ESM bundles published under known
