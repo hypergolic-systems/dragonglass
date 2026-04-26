@@ -1,41 +1,3 @@
-<script lang="ts" module>
-  // Public types — re-exported from index.ts so consumers can spell
-  // the prop shape without reaching into the .svelte file.
-
-  export interface FloatingWindowPos {
-    x: number;
-    y: number;
-  }
-
-  export interface FloatingWindowSize {
-    w: number;
-    h: number;
-  }
-
-  export interface FloatingWindowProps {
-    /** Plain title fallback when no `header` snippet is provided. */
-    title?: string;
-    /** Initial position in viewport pixels. */
-    defaultPos?: FloatingWindowPos;
-    /** Initial size in viewport pixels. */
-    defaultSize?: FloatingWindowSize;
-    /** Lower bound for resize. */
-    minSize?: FloatingWindowSize;
-    /** z-index. Externally managed so consumers can implement their
-     *  own stacking model (Nova's HUD owns one z-counter per panel). */
-    z?: number;
-    /** Show a close button when provided. */
-    onClose?: () => void;
-    /** Fired on pointerdown anywhere on the window. Consumers raise
-     *  the z-index here. */
-    onRaise?: () => void;
-    /** Slots — header for custom title bar contents (chips, buttons),
-     *  children for the body. */
-    header?: import('svelte').Snippet;
-    children?: import('svelte').Snippet;
-  }
-</script>
-
 <script lang="ts">
   // Floating window primitive. Drags from header, resizes from any
   // of 8 edge handles, raises on pointerdown. Visual styling is kept
@@ -48,6 +10,11 @@
   // window closes.
 
   import { onDestroy } from 'svelte';
+  import type {
+    FloatingWindowPos,
+    FloatingWindowSize,
+    FloatingWindowProps,
+  } from './types';
 
   const {
     title = '',

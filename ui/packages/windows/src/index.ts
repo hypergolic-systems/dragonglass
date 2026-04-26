@@ -11,4 +11,4 @@ export type {
   FloatingWindowPos,
   FloatingWindowSize,
   FloatingWindowProps,
-} from './FloatingWindow.svelte';
+} from './types';
