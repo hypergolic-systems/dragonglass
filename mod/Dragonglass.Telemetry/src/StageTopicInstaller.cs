@@ -22,7 +22,10 @@ namespace Dragonglass.Telemetry
                 Debug.LogWarning(LogPrefix + "no telemetry host GameObject; StageTopic will not be installed");
                 return null;
             }
-            return host.AddComponent<StageTopic>();
+            // Route through TopicRegistry so a downstream mod can
+            // swap in a subclass via `RegisterOverride<StageTopic, X>()`.
+            return (StageTopic)host.AddComponent(
+                TopicRegistry.Instance.Resolve<StageTopic>());
         }
 
         public static void Detach(ref StageTopic attached)

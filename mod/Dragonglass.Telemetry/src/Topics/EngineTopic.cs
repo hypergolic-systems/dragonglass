@@ -71,7 +71,7 @@ using UnityEngine;
 
 namespace Dragonglass.Telemetry.Topics
 {
-    public sealed class EngineTopic : Topic
+    public class EngineTopic : Topic
     {
         public override string Name { get { return "engines"; } }
 
@@ -95,7 +95,10 @@ namespace Dragonglass.Telemetry.Topics
         // `FuelFractionEpsilon`.
         private const double FuelFractionEpsilon = 0.005;
 
-        internal struct EngineFrame
+        // Wire-shape DTOs. `public` so subclasses in downstream
+        // assemblies (mods that swap the data source) can populate
+        // them in their override of <see cref="SampleEngines"/>.
+        public struct EngineFrame
         {
             public string Id;
             public float MapX, MapY;
@@ -107,7 +110,7 @@ namespace Dragonglass.Telemetry.Topics
             public List<PropellantFrame> Propellants;
         }
 
-        internal struct PropellantFrame
+        public struct PropellantFrame
         {
             public int ResourceId;
             public string Name;
@@ -203,13 +206,46 @@ namespace Dragonglass.Telemetry.Topics
                 _structureDirty = true;
             }
 
+            _scratch.Clear();
+            if (!SampleEngines(v, refT, _scratch))
+            {
+                // Stale references — the next frame will rebuild and
+                // re-emit. Skip change-detection this frame so we
+                // don't publish a half-walked snapshot.
+                return;
+            }
+
+            string nextVesselId = v.id.ToString("D");
+            if (nextVesselId != _vesselId || HasMaterialChange(_engines, _scratch))
+            {
+                _vesselId = nextVesselId;
+                _engines.Clear();
+                for (int i = 0; i < _scratch.Count; i++) _engines.Add(_scratch[i]);
+                MarkDirty();
+            }
+        }
+
+        /// <summary>
+        /// Fill <paramref name="scratch"/> with one <see cref="EngineFrame"/>
+        /// per engine on the active vessel. Default implementation walks
+        /// stock <c>ModuleEngines</c> via a structural cache that's
+        /// rebuilt on KSP <c>GameEvents</c>; override to source from a
+        /// different engine simulation (e.g. a mod that replaces stock
+        /// engines).
+        /// <para>
+        /// Return <c>false</c> if cached references are stale (the base
+        /// caller will skip change-detection for the frame and the next
+        /// tick will recover). Return <c>true</c> on a clean fill.
+        /// </para>
+        /// </summary>
+        protected virtual bool SampleEngines(Vessel v, Transform refT, List<EngineFrame> scratch)
+        {
             if (_structureDirty)
             {
                 RebuildStructure(v);
                 _structureDirty = false;
             }
 
-            _scratch.Clear();
             Vector3 vesselPos = v.transform.position;
             for (int i = 0; i < _structure.Count; i++)
             {
@@ -217,7 +253,7 @@ namespace Dragonglass.Telemetry.Topics
                 if (es.Part == null || es.Module == null)
                 {
                     _structureDirty = true;
-                    return;
+                    return false;
                 }
 
                 Vector3 rel = es.Part.transform.position - vesselPos;
@@ -250,7 +286,7 @@ namespace Dragonglass.Telemetry.Topics
                 if (stale)
                 {
                     _structureDirty = true;
-                    return;
+                    return false;
                 }
 
                 float isp = es.Module.atmosphereCurve != null
@@ -266,7 +302,7 @@ namespace Dragonglass.Telemetry.Topics
                     ? Mathf.Clamp01(es.Module.currentThrottle)
                     : 0f;
 
-                _scratch.Add(new EngineFrame
+                scratch.Add(new EngineFrame
                 {
                     Id = es.Part.flightID.ToString(),
                     MapX = local.x,
@@ -279,15 +315,7 @@ namespace Dragonglass.Telemetry.Topics
                     Propellants = propellants,
                 });
             }
-
-            string nextVesselId = v.id.ToString("D");
-            if (nextVesselId != _vesselId || HasMaterialChange(_engines, _scratch))
-            {
-                _vesselId = nextVesselId;
-                _engines.Clear();
-                for (int i = 0; i < _scratch.Count; i++) _engines.Add(_scratch[i]);
-                MarkDirty();
-            }
+            return true;
         }
 
         private static byte Classify(ModuleEngines eng, Part p)

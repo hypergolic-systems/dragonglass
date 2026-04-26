@@ -25,7 +25,10 @@ namespace Dragonglass.Telemetry
                 Debug.LogWarning(LogPrefix + "no telemetry host GameObject; EngineTopic will not be installed");
                 return;
             }
-            _attached = host.AddComponent<EngineTopic>();
+            // Route through TopicRegistry so a downstream mod can
+            // swap in a subclass via `RegisterOverride<EngineTopic, X>()`.
+            _attached = (EngineTopic)host.AddComponent(
+                TopicRegistry.Instance.Resolve<EngineTopic>());
         }
 
         private void OnDestroy()

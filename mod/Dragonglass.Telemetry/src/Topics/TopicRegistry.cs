@@ -16,6 +16,12 @@ namespace Dragonglass.Telemetry.Topics
 
         private readonly List<Topic> _topics = new List<Topic>();
 
+        // Process-lifetime map of base topic types to override subclasses.
+        // Mods (e.g. Nova) register here at startup so DG's installers
+        // attach the override class instead of the stock one. Survives
+        // scene transitions; cleared only on registry replacement.
+        private readonly Dictionary<Type, Type> _typeOverrides = new Dictionary<Type, Type>();
+
         public IReadOnlyList<Topic> All { get { return _topics; } }
 
         /// <summary>
@@ -75,6 +81,45 @@ namespace Dragonglass.Telemetry.Topics
                 if (_topics[i].Name == name) return _topics[i];
             }
             return null;
+        }
+
+        /// <summary>
+        /// Register <typeparamref name="TOverride"/> to be instantiated
+        /// in place of <typeparamref name="TBase"/> wherever an installer
+        /// resolves the topic class to attach. The generic constraint
+        /// guarantees the override inherits the base's wire shape (Name
+        /// and WriteData), so the schema can never drift — overrides
+        /// only swap the data-collection step.
+        /// <para>
+        /// Process-lifetime; call once at startup before DG's installers
+        /// run. Re-registering the same pair is idempotent; re-registering
+        /// with a different override logs a warning and replaces.
+        /// </para>
+        /// </summary>
+        public void RegisterOverride<TBase, TOverride>()
+            where TBase : Topic
+            where TOverride : TBase
+        {
+            var baseType = typeof(TBase);
+            var overrideType = typeof(TOverride);
+            if (_typeOverrides.TryGetValue(baseType, out var existing))
+            {
+                if (existing == overrideType) return;
+                Debug.LogWarning(LogPrefix + "topic override conflict: "
+                    + baseType.Name + " → " + existing.Name
+                    + " replaced by " + overrideType.Name);
+            }
+            _typeOverrides[baseType] = overrideType;
+        }
+
+        /// <summary>
+        /// Resolve the runtime type to instantiate for a given base
+        /// topic, applying any registered override. Installers call
+        /// this and pass the result to <c>GameObject.AddComponent</c>.
+        /// </summary>
+        public Type Resolve<T>() where T : Topic
+        {
+            return _typeOverrides.TryGetValue(typeof(T), out var ov) ? ov : typeof(T);
         }
     }
 }

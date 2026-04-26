@@ -66,7 +66,7 @@ using UnityEngine;
 
 namespace Dragonglass.Telemetry.Topics
 {
-    public sealed class StageTopic : Topic
+    public class StageTopic : Topic
     {
         public override string Name { get { return "stage"; } }
 
@@ -83,7 +83,10 @@ namespace Dragonglass.Telemetry.Topics
         private const string KindClamp = "clamp";
         private const string KindOther = "other";
 
-        internal struct StagePartFrame
+        // Wire-shape DTOs. `public` so subclasses (mods that swap the
+        // dV/TWR source) can populate them in their override of
+        // <see cref="CollectStageScalars"/>.
+        public struct StagePartFrame
         {
             public string Kind;
             public string PersistentId;
@@ -100,12 +103,25 @@ namespace Dragonglass.Telemetry.Topics
             public List<string> CousinsInStage;
         }
 
-        internal struct StageFrame
+        public struct StageFrame
         {
             public int Stage;
             public double DeltaVActual;
             public float TwrActual;
             public List<StagePartFrame> Parts;
+        }
+
+        /// <summary>
+        /// Scalar dV / TWR for a single stage. Populated by
+        /// <see cref="CollectStageScalars"/>; the base class joins
+        /// these against the parts grouping to assemble the full
+        /// <see cref="StageFrame"/>s on the wire.
+        /// </summary>
+        public struct StageScalar
+        {
+            public int Stage;
+            public double DeltaVActual;
+            public float TwrActual;
         }
 
         private string _vesselId = "";
@@ -134,6 +150,7 @@ namespace Dragonglass.Telemetry.Topics
 
         // Scratch list reused across frames.
         private readonly List<StageFrame> _scratch = new List<StageFrame>();
+        private readonly List<StageScalar> _scalarScratch = new List<StageScalar>();
 
         // The set of parts currently hover-highlighted in the 3D
         // scene. Replaced wholesale on each setHighlightParts op.
@@ -260,29 +277,23 @@ namespace Dragonglass.Telemetry.Topics
             }
 
             _scratch.Clear();
-
-            List<DeltaVStageInfo> infos = vdv != null ? vdv.OperatingStageInfo : null;
-            if (infos != null)
+            _scalarScratch.Clear();
+            CollectStageScalars(nextVessel, vdv, _scalarScratch);
+            for (int i = 0; i < _scalarScratch.Count; i++)
             {
-                for (int i = 0; i < infos.Count; i++)
+                StageScalar sc = _scalarScratch[i];
+                List<StagePartFrame> parts2;
+                if (!_partsByStage.TryGetValue(sc.Stage, out parts2))
                 {
-                    DeltaVStageInfo info = infos[i];
-                    if (info == null) continue;
-
-                    List<StagePartFrame> parts2;
-                    if (!_partsByStage.TryGetValue(info.stage, out parts2))
-                    {
-                        parts2 = EmptyParts;
-                    }
-
-                    _scratch.Add(new StageFrame
-                    {
-                        Stage = info.stage,
-                        DeltaVActual = info.deltaVActual,
-                        TwrActual = info.TWRActual,
-                        Parts = parts2,
-                    });
+                    parts2 = EmptyParts;
                 }
+                _scratch.Add(new StageFrame
+                {
+                    Stage = sc.Stage,
+                    DeltaVActual = sc.DeltaVActual,
+                    TwrActual = sc.TwrActual,
+                    Parts = parts2,
+                });
             }
 
             bool changed = _forceEmit
@@ -298,6 +309,38 @@ namespace Dragonglass.Telemetry.Topics
                 for (int i = 0; i < _scratch.Count; i++) _stages.Add(_scratch[i]);
                 _forceEmit = false;
                 MarkDirty();
+            }
+        }
+
+        /// <summary>
+        /// Populate <paramref name="scratch"/> with one
+        /// <see cref="StageScalar"/> per active stage. Default impl
+        /// reads <c>VesselDeltaV.OperatingStageInfo</c> — i.e. stock
+        /// KSP's own dV simulator, the same numbers the stock stager
+        /// shows. Override to source from a different propulsion
+        /// simulation (e.g. a mod that replaces stock engines and
+        /// thus sees stock dV come back as zero/garbage).
+        /// <para>
+        /// <paramref name="v"/> is the active <see cref="Vessel"/> in
+        /// flight, or <c>null</c> in the editor scene. <paramref name="vdv"/>
+        /// is the corresponding <see cref="VesselDeltaV"/> handle the
+        /// stock impl uses; subclasses can ignore it.
+        /// </para>
+        /// </summary>
+        protected virtual void CollectStageScalars(Vessel v, VesselDeltaV vdv, List<StageScalar> scratch)
+        {
+            List<DeltaVStageInfo> infos = vdv != null ? vdv.OperatingStageInfo : null;
+            if (infos == null) return;
+            for (int i = 0; i < infos.Count; i++)
+            {
+                DeltaVStageInfo info = infos[i];
+                if (info == null) continue;
+                scratch.Add(new StageScalar
+                {
+                    Stage = info.stage,
+                    DeltaVActual = info.deltaVActual,
+                    TwrActual = info.TWRActual,
+                });
             }
         }
 
