@@ -33,6 +33,7 @@ export default defineConfig({
         threlte:                           resolve(__dirname, 'src/threlte.ts'),
         stock:                             resolve(__dirname, 'src/stock.ts'),
         'instruments/index':               resolve(__dirname, 'src/instruments.ts'),
+        'windows/index':                   resolve(__dirname, 'src/windows.ts'),
         'telemetry/core':                  resolve(__dirname, 'src/telemetry-core.ts'),
         'telemetry/svelte':                resolve(__dirname, 'src/telemetry-svelte.ts'),
         'telemetry/simulated':             resolve(__dirname, 'src/telemetry-simulated.ts'),

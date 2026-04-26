@@ -54,6 +54,7 @@ pub const RUNTIME_INDEX: &[RuntimeEntry] = &[
     RuntimeEntry { specifier: "three",                               path: "three.js" },
     RuntimeEntry { specifier: "@threlte/core",                       path: "threlte.js" },
     RuntimeEntry { specifier: "@dragonglass/instruments",            path: "instruments/index.js" },
+    RuntimeEntry { specifier: "@dragonglass/windows",                path: "windows/index.js" },
     RuntimeEntry { specifier: "@dragonglass/telemetry/core",         path: "telemetry/core.js" },
     RuntimeEntry { specifier: "@dragonglass/telemetry/svelte",       path: "telemetry/svelte.js" },
     RuntimeEntry { specifier: "@dragonglass/telemetry/simulated",    path: "telemetry/simulated.js" },
@@ -283,6 +284,9 @@ mod tests {
         // Core runtime specifiers point under /Dragonglass_Hud/
         assert!(json.contains(r#""svelte": "/Dragonglass_Hud/svelte.js""#));
         assert!(json.contains(r#""@dragonglass/stock": "/Dragonglass_Hud/stock.js""#));
+        assert!(
+            json.contains(r#""@dragonglass/windows": "/Dragonglass_Hud/windows/index.js""#)
+        );
         // Dragonglass_Hud is also addressable as a mod (fallback).
         assert!(json.contains(r#""@dragonglass_hud/": "/Dragonglass_Hud/""#));
         // Mod with index gets both forms.
