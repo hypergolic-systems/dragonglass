@@ -12,6 +12,7 @@
 import { onDestroy } from 'svelte';
 import { getKsp } from './context';
 import { PawTopic, PartTopic } from '../core/topics';
+import { decodePaw, decodePart } from '../dragonglass/decoders';
 import type { PartData } from '../core/part-data';
 import { Smoothed, vec2Kinematic, type Vec2 } from '../smoothing';
 import { useRevertSignal } from './use-revert-signal.svelte';
@@ -110,7 +111,8 @@ export function usePartActionWindows(): PartActionWindowOps {
   const windows = $state<InternalPaw[]>([]);
   let zCounter = 1;
 
-  const unsubscribePaw = telemetry.subscribe(PawTopic, (ev) => {
+  const unsubscribePaw = telemetry.subscribe(PawTopic, (raw) => {
+    const ev = decodePaw(raw);
     if (!ev.persistentId) return;  // empty pulse — defensive, shouldn't happen on the wire
     const existing = windows.find((w) => w.persistentId === ev.persistentId);
     if (existing) {
@@ -145,7 +147,8 @@ export function usePartActionWindows(): PartActionWindowOps {
     // mutation goes through Svelte's reactive proxy — writing to the
     // captured `seed` reference directly would bypass the proxy and
     // the template would never re-render.
-    const unsubPart = telemetry.subscribe(PartTopic(persistentId), (frame, tObserved) => {
+    const unsubPart = telemetry.subscribe(PartTopic(persistentId), (raw, tObserved) => {
+      const frame = decodePart(raw);
       const w = windows.find((x) => x.persistentId === persistentId);
       if (!w) return;
       // Tombstone: server emits an empty-array frame on `part/<id>`

@@ -6,6 +6,7 @@
 
 import { getKsp } from './context';
 import { PartCatalogTopic } from '../core/topics';
+import { decodePartCatalog } from '../dragonglass/decoders';
 import type { PartCatalogData } from '../core/part-catalog-data';
 
 function defaults(): PartCatalogData {
@@ -27,7 +28,8 @@ export function usePartCatalog(): PartCatalogData {
   const data = $state<PartCatalogData>(defaults());
 
   $effect(() => {
-    return telemetry.subscribe(PartCatalogTopic, (frame) => {
+    return telemetry.subscribe(PartCatalogTopic, (raw) => {
+      const frame = decodePartCatalog(raw);
       // Frames are immutable per the readonly contract — swap the
       // whole entries array rather than mutating in place.
       (data as { entries: typeof frame.entries }).entries = frame.entries;

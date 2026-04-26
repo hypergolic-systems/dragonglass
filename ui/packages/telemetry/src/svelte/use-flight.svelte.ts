@@ -13,6 +13,7 @@
 import { Quaternion, Vector3 } from 'three';
 import { getKsp } from './context';
 import { FlightTopic } from '../core/topics';
+import { decodeFlight } from '../dragonglass/decoders';
 import type { FlightData, SpeedDisplayMode } from '../core/flight-data';
 
 // Internal writable shape — assignments are the store's concern,
@@ -75,7 +76,11 @@ export function useFlightData(): FlightData {
   if (!subscribed) {
     subscribed = true;
     const telemetry = getKsp();
-    telemetry.subscribe(FlightTopic, (frame) => {
+    telemetry.subscribe(FlightTopic, (raw) => {
+      // The transport delivers raw wire frames; decode here. The
+      // returned object is a scratch singleton owned by `decodeFlight`
+      // — copy fields out below before the next call mutates it.
+      const frame = decodeFlight(raw);
       // Plain scalars — Svelte's `$state` proxy intercepts each
       // assignment and fires fine-grained reactivity for the key.
       store.vesselId = frame.vesselId;

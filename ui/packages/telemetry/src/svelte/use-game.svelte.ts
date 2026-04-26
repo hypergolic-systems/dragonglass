@@ -1,5 +1,6 @@
 import { getKsp } from './context';
 import { GameTopic } from '../core/topics';
+import { decodeGame } from '../dragonglass/decoders';
 import type { GameData } from '../core/game-data';
 
 function defaults(): GameData {
@@ -18,8 +19,8 @@ export function useGame(): GameData {
   let data = $state<GameData>(defaults());
 
   $effect(() => {
-    return telemetry.subscribe(GameTopic, (frame) => {
-      Object.assign(data, frame);
+    return telemetry.subscribe(GameTopic, (raw) => {
+      Object.assign(data, decodeGame(raw));
     });
   });
 

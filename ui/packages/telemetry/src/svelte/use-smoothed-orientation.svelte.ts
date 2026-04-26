@@ -1,6 +1,7 @@
 import { Quaternion, Vector3 } from 'three';
 import { getKsp } from './context';
 import { FlightTopic } from '../core/topics';
+import { decodeFlight } from '../dragonglass/decoders';
 import { Smoothed, quaternionBodyKinematic } from '../smoothing';
 
 /**
@@ -28,7 +29,8 @@ export function useSmoothedOrientation(
   const telemetry = getKsp();
 
   $effect(() => {
-    return telemetry.subscribe(FlightTopic, (frame, tObserved) => {
+    return telemetry.subscribe(FlightTopic, (raw, tObserved) => {
+      const frame = decodeFlight(raw);
       smoothed.observe(frame.orientation, tObserved, frame.angularVelocity);
     });
   });

@@ -1,5 +1,6 @@
 import { getKsp } from './context';
 import { EditorStateTopic } from '../core/topics';
+import { decodeEditorState } from '../dragonglass/decoders';
 import type { EditorStateData } from '../core/editor-state-data';
 
 function defaults(): EditorStateData {
@@ -19,8 +20,8 @@ export function useEditorState(): EditorStateData {
   let data = $state<EditorStateData>(defaults());
 
   $effect(() => {
-    return telemetry.subscribe(EditorStateTopic, (frame) => {
-      Object.assign(data, frame);
+    return telemetry.subscribe(EditorStateTopic, (raw) => {
+      Object.assign(data, decodeEditorState(raw));
     });
   });
 

@@ -29,6 +29,16 @@ import {
   ENGINES_CYCLE_SECONDS,
 } from './engines-fixture';
 import { SIMULATED_PARTS, type SimulatedPart } from './parts-fixture';
+import {
+  encodeFlight,
+  encodeGame,
+  encodeEditorState,
+  encodeEngines,
+  encodeStage,
+  encodePaw,
+  encodePart,
+  encodePartCatalog,
+} from './encoders';
 
 const PART_TOPIC_PREFIX = 'part/';
 
@@ -82,24 +92,25 @@ export class SimulatedKsp implements Ksp {
     // snapshot replay.
     const t = performance.now() / 1000;
     if (topic.name === AssemblyTopic.name) {
+      // Assembly's wire = decoded shape, no encode needed.
       (cb as Callback)(ASSEMBLY, t);
     } else if (topic.name === GameTopic.name) {
-      (cb as Callback)(SIM_GAME, t);
+      (cb as Callback)(encodeGame(SIM_GAME), t);
     } else if (topic.name === ConfigTopic.name) {
       // Dev mode uses an empty config — matches the plugin's default
-      // when <modDir>/config.json is missing.
+      // when <modDir>/config.json is missing. Wire = decoded.
       (cb as Callback)({}, t);
     } else if (topic.name === EditorStateTopic.name) {
       // Dev mode has no stock cursor → nothing is ever held. The
       // catalog's drop-to-discard gesture is a no-op here.
-      (cb as Callback)({ heldPart: null }, t);
+      (cb as Callback)(encodeEditorState({ heldPart: null }), t);
     } else if (topic.name === StageTopic.name) {
       const stage = SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA;
-      (cb as Callback)(stage, t);
+      (cb as Callback)(encodeStage(stage), t);
     } else if (topic.name === PartCatalogTopic.name) {
-      (cb as Callback)(SIM_PART_CATALOG, t);
+      (cb as Callback)(encodePartCatalog(SIM_PART_CATALOG), t);
     } else if (topic.name === EngineTopic.name) {
-      (cb as Callback)(this.lastEngines, t);
+      (cb as Callback)(encodeEngines(this.lastEngines), t);
     } else if (topic.name.startsWith(PART_TOPIC_PREFIX)) {
       // PartTopic(id) — prime the cache so the first subscriber on a
       // never-before-seen part gets a frame this tick rather than
@@ -109,7 +120,7 @@ export class SimulatedKsp implements Ksp {
       const drained = SIM_GAME.scene !== 'EDITOR';
       const cached = this.lastParts.get(partId) ?? buildPart(partId, this.elapsed, drained);
       this.lastParts.set(partId, cached);
-      (cb as Callback)(cached, t);
+      (cb as Callback)(encodePart(cached), t);
     }
 
     return () => {
@@ -164,7 +175,7 @@ export class SimulatedKsp implements Ksp {
       );
       const next: PartData = { ...prev, resources };
       this.lastParts.set(partId, next);
-      this.dispatch(PartTopic(partId), next);
+      this.dispatch(PartTopic(partId), encodePart(next));
     }
   }
 
@@ -205,10 +216,12 @@ export class SimulatedKsp implements Ksp {
       if (k === 'f2') {
         e.preventDefault();
         SIM_GAME.scene = SIM_GAME.scene === 'FLIGHT' ? 'EDITOR' : 'FLIGHT';
-        this.dispatch(GameTopic, SIM_GAME);
+        this.dispatch(GameTopic, encodeGame(SIM_GAME));
         this.dispatch(
           StageTopic,
-          SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA,
+          encodeStage(
+            SIM_GAME.scene === 'EDITOR' ? SIM_STAGE_DATA_EDITOR : SIM_STAGE_DATA,
+          ),
         );
         return;
       }
@@ -252,8 +265,8 @@ export class SimulatedKsp implements Ksp {
       const engines = buildEngines(this.elapsed, flight.throttle);
       this.lastEngines = engines;
 
-      this.dispatch(FlightTopic, flight);
-      this.dispatch(EngineTopic, engines);
+      this.dispatch(FlightTopic, encodeFlight(flight));
+      this.dispatch(EngineTopic, encodeEngines(engines));
 
       // Re-emit part frames only for parts that have a live subscriber
       // this tick. The positional Lissajous drifts slowly, so even
@@ -274,8 +287,9 @@ export class SimulatedKsp implements Ksp {
           ? { ...built, resources: prev.resources }
           : built;
         this.lastParts.set(partId, frame);
+        const wireFrame = encodePart(frame);
         const bucket = this.subs.get(name);
-        if (bucket) for (const cb of bucket) cb(frame, tObserved);
+        if (bucket) for (const cb of bucket) cb(wireFrame, tObserved);
       }
 
       this.raf = requestAnimationFrame(tick);
@@ -293,7 +307,7 @@ export class SimulatedKsp implements Ksp {
     const onContext = (e: MouseEvent) => {
       const partId = nearestPartToCursor(e.clientX, e.clientY, this.elapsed);
       if (partId === null) return;
-      this.dispatch(PawTopic, { persistentId: partId });
+      this.dispatch(PawTopic, encodePaw({ persistentId: partId }));
     };
     window.addEventListener('contextmenu', onContext, true);
     this.cleanupPawClicks = () => {

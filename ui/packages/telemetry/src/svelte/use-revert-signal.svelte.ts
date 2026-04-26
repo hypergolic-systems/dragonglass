@@ -20,6 +20,7 @@
 
 import { getKsp } from './context';
 import { ClockTopic } from '../core/topics';
+import { decodeClock } from '../dragonglass/decoders';
 
 interface RevertSignal {
   /**
@@ -54,7 +55,8 @@ export function useRevertSignal(): RevertSignal {
   if (!subscribed) {
     subscribed = true;
     const telemetry = getKsp();
-    telemetry.subscribe(ClockTopic, (frame) => {
+    telemetry.subscribe(ClockTopic, (raw) => {
+      const frame = decodeClock(raw);
       if (lastUt !== null && frame.ut < lastUt - REVERT_THRESHOLD_S) {
         store.revertCount += 1;
       }

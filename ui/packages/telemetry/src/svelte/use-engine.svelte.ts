@@ -4,6 +4,7 @@
 
 import { getKsp } from './context';
 import { EngineTopic } from '../core/topics';
+import { decodeEngines } from '../dragonglass/decoders';
 import type { EngineData, EnginePoint } from '../core/engine-data';
 
 interface MutableEngineData {
@@ -31,7 +32,8 @@ export function useEngineData(): EngineData {
   if (!subscribed) {
     subscribed = true;
     const telemetry = getKsp();
-    telemetry.subscribe(EngineTopic, (frame) => {
+    telemetry.subscribe(EngineTopic, (raw) => {
+      const frame = decodeEngines(raw);
       store.vesselId = frame.vesselId;
       store.engines = frame.engines;
     });

@@ -1,33 +1,47 @@
+// Topic factories. The generic `T` is the **wire shape** the
+// transport delivers to subscribers — all decoding into the named
+// `*Data` types lives in subscriber code (the hooks under
+// `../svelte/`). The transport itself doesn't decode.
+//
+// `ConfigData` and `AssemblyModel` have no positional wire form —
+// they ship as plain JSON objects, so the wire and consumer types
+// are the same.
+
 import { topic, type Topic } from './ksp';
-import type { ClockData } from './clock-data';
 import type { ConfigData } from './config-data';
-import type { EditorStateData } from './editor-state-data';
-import type { GameData } from './game-data';
 import type { GameOps } from './game-ops';
-import type { FlightData } from './flight-data';
 import type { FlightOps } from './flight-ops';
 import type { AssemblyModel } from './assembly';
-import type { EngineData } from './engine-data';
-import type { StageData } from './stage-data';
 import type { StageOps } from './stage-ops';
-import type { PartData, PawEvent, PartOps } from './part-data';
-import type { PartCatalogData, PartCatalogOps } from './part-catalog-data';
+import type { PartOps } from './part-data';
+import type { PartCatalogOps } from './part-catalog-data';
+import type {
+  ClockWire,
+  GameWire,
+  EditorStateWire,
+  FlightWire,
+  EngineWire,
+  StageWire,
+  PawWire,
+  PartWire,
+  PartCatalogWire,
+} from './wire';
 
-export const ClockTopic = topic<ClockData>('clock');
+export const ClockTopic = topic<ClockWire>('clock');
 export const ConfigTopic = topic<ConfigData>('config');
-export const EditorStateTopic = topic<EditorStateData>('editorState');
-export const GameTopic = topic<GameData, GameOps>('game');
-export const FlightTopic = topic<FlightData, FlightOps>('flight');
+export const EditorStateTopic = topic<EditorStateWire>('editorState');
+export const GameTopic = topic<GameWire, GameOps>('game');
+export const FlightTopic = topic<FlightWire, FlightOps>('flight');
 export const AssemblyTopic = topic<AssemblyModel>('assembly');
-export const EngineTopic = topic<EngineData>('engines');
-export const StageTopic = topic<StageData, StageOps>('stage');
+export const EngineTopic = topic<EngineWire>('engines');
+export const StageTopic = topic<StageWire, StageOps>('stage');
 
 /**
  * PAW open-intent pulses (persistentId of the part the pilot
  * right-clicked). Treat each dispatch as an event, not a state — see
  * `part-data.ts`.
  */
-export const PawTopic = topic<PawEvent>('paw');
+export const PawTopic = topic<PawWire>('paw');
 
 /**
  * VAB/SPH parts catalog. One-shot emission on editor entry; the
@@ -35,7 +49,7 @@ export const PawTopic = topic<PawEvent>('paw');
  * change at runtime. Consumers should cache the first frame and
  * reuse it for the duration of the editor scene.
  */
-export const PartCatalogTopic = topic<PartCatalogData, PartCatalogOps>('partCatalog');
+export const PartCatalogTopic = topic<PartCatalogWire, PartCatalogOps>('partCatalog');
 
 /**
  * Per-part telemetry topic. The topic name embeds the part's KSP
@@ -44,6 +58,6 @@ export const PartCatalogTopic = topic<PartCatalogData, PartCatalogOps>('partCata
  * subscriber. Carries `PartOps.invokeEvent` for the UI to click
  * PartModule buttons (Deploy, Toggle, ...).
  */
-export function PartTopic(persistentId: string): Topic<PartData, PartOps> {
-  return topic<PartData, PartOps>(`part/${persistentId}`);
+export function PartTopic(persistentId: string): Topic<PartWire, PartOps> {
+  return topic<PartWire, PartOps>(`part/${persistentId}`);
 }

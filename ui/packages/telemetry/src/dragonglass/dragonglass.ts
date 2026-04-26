@@ -10,6 +10,12 @@
 // the last-known frame for every topic, so consumers converge without
 // client-side caching of server state across disconnects.
 //
+// **No decoding here.** The transport hands the frame's `data` field
+// to subscribers as-is (raw JSON value); turning it into named-field
+// objects is the subscriber's job, since only the subscriber knows
+// which topic shape to expect. See `decoders.ts` for shared decoder
+// utilities the built-in hooks (`../svelte/use-*.svelte.ts`) use.
+//
 // Snapshot-on-subscribe: a new subscriber added *after* a frame has
 // already been dispatched gets the most recent cached frame
 // immediately, so components that mount late don't stare at their
@@ -26,40 +32,14 @@
 // about.
 
 import type { Ksp, Topic, OpArgs } from '../core/ksp';
-import {
-  decodeClock,
-  decodeConfig,
-  decodeEditorState,
-  decodeGame,
-  decodeFlight,
-  decodeEngines,
-  decodeStage,
-  decodePaw,
-  decodePart,
-  decodePartCatalog,
-} from './decoders';
-
-const PART_TOPIC_PREFIX = 'part/';
 
 const RECONNECT_DELAY_MS = 1000;
 
-type Decoder = (raw: unknown) => unknown;
 type Callback = (frame: unknown, tObserved: number) => void;
 
 export class DragonglassTelemetry implements Ksp {
   private readonly url: string;
   private readonly subs = new Map<string, Set<Callback>>();
-  private readonly decoders: Record<string, Decoder> = {
-    clock: decodeClock,
-    config: decodeConfig,
-    editorState: decodeEditorState,
-    game: decodeGame,
-    flight: decodeFlight,
-    engines: decodeEngines,
-    stage: decodeStage,
-    paw: decodePaw,
-    partCatalog: decodePartCatalog,
-  };
   private readonly lastByTopic = new Map<string, unknown>();
 
   private ws: WebSocket | null = null;
@@ -246,14 +226,6 @@ export class DragonglassTelemetry implements Ksp {
     const topic = parsed.topic;
     if (typeof topic !== 'string') return;
 
-    // Parametrized topics (today: `part/<id>`) route by prefix so one
-    // decoder serves every instance; fixed-name topics look up by the
-    // exact key.
-    const decode = topic.startsWith(PART_TOPIC_PREFIX)
-      ? decodePart
-      : this.decoders[topic];
-    if (!decode) return;  // Unknown topic: forward-compat, drop silently.
-
     // Local-clock timestamp at arrival. The wire's `t_server` is in
     // server-clock units (Unity's `Time.realtimeSinceStartup`); until
     // we estimate the server↔client offset, arrival time is the best
@@ -263,7 +235,9 @@ export class DragonglassTelemetry implements Ksp {
     void parsed.t_server;
     const tObserved = performance.now() / 1000;
 
-    const frame = decode(parsed.data);
+    // Frame is the raw `data` value from the envelope. Subscribers
+    // own decoding from there.
+    const frame = parsed.data;
     this.lastByTopic.set(topic, frame);
     const bucket = this.subs.get(topic);
     if (bucket) {

@@ -4,6 +4,7 @@
 
 import { getKsp } from './context';
 import { StageTopic } from '../core/topics';
+import { decodeStage } from '../dragonglass/decoders';
 import type { StageData, StageEntry } from '../core/stage-data';
 
 interface MutableStageData {
@@ -33,7 +34,8 @@ export function useStageData(): StageData {
   if (!subscribed) {
     subscribed = true;
     const telemetry = getKsp();
-    telemetry.subscribe(StageTopic, (frame) => {
+    telemetry.subscribe(StageTopic, (raw) => {
+      const frame = decodeStage(raw);
       store.vesselId = frame.vesselId;
       store.currentStageIdx = frame.currentStageIdx;
       store.stages = frame.stages;
