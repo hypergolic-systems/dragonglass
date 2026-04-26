@@ -29,6 +29,11 @@ export default defineConfig({
         'svelte/internal/client':          resolve(__dirname, 'src/svelte-internal-client.ts'),
         'svelte/internal/disclose-version':resolve(__dirname, 'src/svelte-internal-disclose-version.ts'),
         'svelte/internal/flags/legacy':    resolve(__dirname, 'src/svelte-internal-flags-legacy.ts'),
+        // Reactive collection types — SvelteMap/SvelteSet/SvelteDate
+        // etc. Mods reach for these any time they need a $state-y
+        // structure with dynamic keys; sharing through the runtime
+        // keeps everyone on the same signals.
+        'svelte/reactivity':               resolve(__dirname, 'src/svelte-reactivity.ts'),
         three:                             resolve(__dirname, 'src/three.ts'),
         threlte:                           resolve(__dirname, 'src/threlte.ts'),
         stock:                             resolve(__dirname, 'src/stock.ts'),

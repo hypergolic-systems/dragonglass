@@ -51,6 +51,11 @@ pub const RUNTIME_INDEX: &[RuntimeEntry] = &[
     RuntimeEntry { specifier: "svelte/internal/client",              path: "svelte/internal/client.js" },
     RuntimeEntry { specifier: "svelte/internal/disclose-version",    path: "svelte/internal/disclose-version.js" },
     RuntimeEntry { specifier: "svelte/internal/flags/legacy",        path: "svelte/internal/flags/legacy.js" },
+    // Reactive collections (SvelteMap, SvelteSet, SvelteDate, etc.) —
+    // mods reach for these for $state-y structures with dynamic keys.
+    // Shared through the runtime so everyone signals against the same
+    // instance.
+    RuntimeEntry { specifier: "svelte/reactivity",                   path: "svelte/reactivity.js" },
     RuntimeEntry { specifier: "three",                               path: "three.js" },
     RuntimeEntry { specifier: "@threlte/core",                       path: "threlte.js" },
     RuntimeEntry { specifier: "@dragonglass/instruments",            path: "instruments/index.js" },
