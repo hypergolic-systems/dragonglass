@@ -1,8 +1,9 @@
 // Harmony patches that hide stock VAB/SPH editor UI elements
 // Dragonglass replaces. Sibling to StockUiHider (Flight-scene) but
-// kept separate because the targets + risks are scene-specific:
-// in Flight we hide instruments, in the editor we hide parts panels
-// and (eventually) staging.
+// kept separate because the targets + risks are scene-specific.
+// Editor staging is gated on `editor/staging` in StockUiHider's
+// StageManager patches — same patch target as Flight, so it lives
+// next to its Flight twin rather than here.
 //
 // Deferred-SetActive pattern: we postfix EditorPanels.Awake but
 // defer SetActive(false) by one frame. InventoryPanelController

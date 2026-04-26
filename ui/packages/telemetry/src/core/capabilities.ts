@@ -7,13 +7,15 @@
  * With no capabilities declared, the plugin leaves all stock UI intact.
  */
 
-export const CAP_FLIGHT_UI    = 'flight/ui' as const;
-export const CAP_FLIGHT_PAW   = 'flight/paw' as const;
-export const CAP_EDITOR_PARTS = 'editor/parts' as const;
-export const CAP_EDITOR_PAW   = 'editor/paw' as const;
+export const CAP_FLIGHT_UI      = 'flight/ui' as const;
+export const CAP_FLIGHT_PAW     = 'flight/paw' as const;
+export const CAP_EDITOR_PARTS   = 'editor/parts' as const;
+export const CAP_EDITOR_PAW     = 'editor/paw' as const;
+export const CAP_EDITOR_STAGING = 'editor/staging' as const;
 
 export type Capability =
   | typeof CAP_FLIGHT_UI
   | typeof CAP_FLIGHT_PAW
   | typeof CAP_EDITOR_PARTS
-  | typeof CAP_EDITOR_PAW;
+  | typeof CAP_EDITOR_PAW
+  | typeof CAP_EDITOR_STAGING;

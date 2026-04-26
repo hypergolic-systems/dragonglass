@@ -7,6 +7,7 @@
     CAP_FLIGHT_PAW,
     CAP_EDITOR_PARTS,
     CAP_EDITOR_PAW,
+    CAP_EDITOR_STAGING,
     type Capability,
     type ConfigData,
   } from '@dragonglass/telemetry/core';
@@ -54,6 +55,7 @@
     if (pawOn) caps.push(CAP_FLIGHT_PAW);
     if (editorOn) {
       caps.push(CAP_EDITOR_PARTS);
+      caps.push(CAP_EDITOR_STAGING);
       if (pawOn) caps.push(CAP_EDITOR_PAW);
     }
     return caps;

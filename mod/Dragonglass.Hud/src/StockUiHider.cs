@@ -126,6 +126,21 @@ namespace Dragonglass.Hud
         // `ShowHideStageStack(false)`, which also calls
         // `InputLockManager.SetControlLock(STAGING)` and would kill
         // spacebar-to-stage.
+        //
+        // Scene gate. StageManager is one MonoBehaviour class instantiated
+        // in both Flight and Editor scenes, so the patches below fire in
+        // both — gate Flight on `flight/ui` and Editor on `editor/staging`
+        // so a UI replacing only one scene's chrome leaves the other
+        // alone. (Mirror of the Flight/Editor split in
+        // Patches/UIPartActionControllerPatch.cs.)
+        private static string StageCapForCurrentScene()
+        {
+            GameScenes s = HighLogic.LoadedScene;
+            return s == GameScenes.FLIGHT ? Capabilities.FlightUi
+                 : s == GameScenes.EDITOR ? Capabilities.EditorStaging
+                 : null;
+        }
+
         [HarmonyPatch(typeof(StageManager), "Awake")]
         internal static class StageManagerPatch
         {
@@ -135,7 +150,8 @@ namespace Dragonglass.Hud
             [HarmonyPostfix]
             private static void Postfix(StageManager __instance)
             {
-                if (!Capabilities.Has(Capabilities.FlightUi)) return;
+                string cap = StageCapForCurrentScene();
+                if (cap == null || !Capabilities.Has(cap)) return;
                 if (__instance == null || _anchorField == null) return;
                 var anchor = _anchorField.GetValue(__instance) as MonoBehaviour;
                 if (anchor == null || anchor.gameObject == null)
@@ -163,7 +179,11 @@ namespace Dragonglass.Hud
         internal static class ShowHideStageStackPatch
         {
             [HarmonyPrefix]
-            private static bool Prefix() => !Capabilities.Has(Capabilities.FlightUi);
+            private static bool Prefix()
+            {
+                string cap = StageCapForCurrentScene();
+                return cap == null || !Capabilities.Has(cap);
+            }
         }
 
         // Several widgets have no dedicated MonoBehaviour we can patch:

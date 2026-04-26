@@ -24,14 +24,15 @@ namespace Dragonglass.Telemetry
 {
     public static class Capabilities
     {
-        public const string FlightUi    = "flight/ui";
-        public const string FlightPaw   = "flight/paw";
-        public const string EditorParts = "editor/parts";
-        public const string EditorPaw   = "editor/paw";
+        public const string FlightUi      = "flight/ui";
+        public const string FlightPaw     = "flight/paw";
+        public const string EditorParts   = "editor/parts";
+        public const string EditorPaw     = "editor/paw";
+        public const string EditorStaging = "editor/staging";
 
         private static readonly HashSet<string> Known = new HashSet<string>
         {
-            FlightUi, FlightPaw, EditorParts, EditorPaw,
+            FlightUi, FlightPaw, EditorParts, EditorPaw, EditorStaging,
         };
 
         private static HashSet<string> _current = new HashSet<string>();
