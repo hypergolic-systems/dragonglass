@@ -9,6 +9,8 @@ export { default as NavballIndicator } from './flight/NavballIndicator.svelte';
 export { default as CurvedTape } from './flight/CurvedTape.svelte';
 export { default as StagingStack } from './flight/StagingStack.svelte';
 export { default as Propulsion } from './flight/Propulsion.svelte';
+export { default as ContextMenu } from './flight/ContextMenu.svelte';
+export type { MenuItem } from './flight/context-menu';
 
 export {
   formatSurfaceSpeed,
