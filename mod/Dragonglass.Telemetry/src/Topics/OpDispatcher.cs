@@ -77,8 +77,22 @@ namespace Dragonglass.Telemetry.Topics
                 Topic topic = _registry.GetByName(env.Topic);
                 if (topic == null)
                 {
-                    Debug.LogWarning(LogPrefix + "unknown topic '" + env.Topic + "'");
-                    continue;
+                    // The topic isn't registered — but the op presupposes a
+                    // dispatch target, so give subscription managers a chance
+                    // to attach the Topic Behaviour now (same path a wire
+                    // `subscribe` would take). Lets clients fire one-shot
+                    // ops at per-part / per-vessel topics they're not
+                    // actively streaming. The Topic stays attached after
+                    // dispatch; if no one ever subscribes on the wire the
+                    // broadcaster filters its frames out, so the cost is
+                    // a single dormant Behaviour on the part GameObject.
+                    SubscriptionBus.RaiseSubscribe(env.Topic);
+                    topic = _registry.GetByName(env.Topic);
+                    if (topic == null)
+                    {
+                        Debug.LogWarning(LogPrefix + "unknown topic '" + env.Topic + "'");
+                        continue;
+                    }
                 }
                 try
                 {
