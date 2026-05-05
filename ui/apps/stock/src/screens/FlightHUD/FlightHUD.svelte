@@ -6,6 +6,8 @@
     NavballIndicator,
     Propulsion,
     StagingStack,
+    PunchThrough,
+    PunchThroughProvider,
     formatSurfaceSpeed,
     formatAltitude,
     SPEED_SCALE,
@@ -35,7 +37,17 @@
   );
 </script>
 
+<PunchThroughProvider>
 <div class="hud hud--navball-only">
+  <!-- Punch-through preview slot. Bottom-right corner placeholder for
+       the future Kerbal portrait gallery — the rect tracks here, so a
+       mod-side stream registered under id "test" (e.g. a checkerboard
+       from the plugin) shows through the chroma-key. With no stream
+       registered this just renders as the chroma color. -->
+  <div class="punch-preview">
+    <PunchThrough id="test" />
+  </div>
+
   <div class="navslot navslot--bottom-left">
     <!-- Left-side staging stack. Propulsion sits at the bottom
          (DOM-first under column-reverse); StagingStack stacks above
@@ -84,3 +96,18 @@
        the flight scene, taking every PAW subscription with it. -->
   <PartActionWindowHost />
 </div>
+</PunchThroughProvider>
+
+<style>
+  .punch-preview {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    width: 180px;
+    height: 180px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 4px;
+    overflow: hidden;
+    pointer-events: none;
+  }
+</style>

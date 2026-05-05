@@ -83,6 +83,46 @@ namespace Dragonglass.Hud
         public static extern void DgHudNative_UpdatePending(
             uint ioSurfaceId, uint ioSurfaceGen);
 
+        /// <summary>
+        /// Push the latest punch-through stream rect snapshot to the
+        /// plugin. <paramref name="data"/> is a packed buffer of
+        /// <c>count * <see cref="Layout.StreamSlotSize"/></c> bytes
+        /// matching the v4 SHM stream-rect slot layout. Cheap mutex
+        /// copy on the native side; chroma-key compositing happens on
+        /// the next render-thread event.
+        /// </summary>
+        [DllImport(Lib)]
+        public static extern void DgHudNative_UpdateStreamRects(
+            IntPtr data, int count);
+
+        /// <summary>
+        /// Upload (or replace) the bytes for a punch-through stream
+        /// texture. <paramref name="bgraBytes"/> points to
+        /// <c>width*height*4</c> bytes in BGRA8 premultiplied alpha.
+        /// The plugin defers the GL upload to the next render event.
+        /// </summary>
+        [DllImport(Lib)]
+        public static extern void DgHudNative_PushStreamFrame(
+            uint idHash, int width, int height, IntPtr bgraBytes);
+
+        /// <summary>
+        /// Drop a previously-registered stream. The compositor stops
+        /// drawing it from the next render event onward.
+        /// </summary>
+        [DllImport(Lib)]
+        public static extern void DgHudNative_RemoveStream(uint idHash);
+
+        /// <summary>
+        /// Register a built-in checkerboard test stream under the
+        /// well-known id "test" (FNV-1a hashed). Intended for verifying
+        /// the chroma-key pipeline end-to-end before real portraits
+        /// are wired up — mount a <c>&lt;PunchThrough id="test"&gt;</c>
+        /// and the checkerboard appears under the chroma fill.
+        /// </summary>
+        [DllImport(Lib)]
+        public static extern uint DgHudNative_RegisterTestStream(
+            int width, int height);
+
         /// <summary>Fetch the render-event function pointer for
         /// <c>GL.IssuePluginEvent</c>.</summary>
         [DllImport(Lib)]

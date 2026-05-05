@@ -24,7 +24,7 @@ use cef::{args::Args, *};
 use dg_sidecar::app::{
     BrowserSlot, KspAppBuilder, KspAppInner, KspBrowserProcessHandlerBuilder,
     KspBrowserProcessHandlerInner, KspClientBuilder, KspRenderHandlerBuilder,
-    KspRenderHandlerInner, INITIAL_HEIGHT, INITIAL_WIDTH,
+    KspRenderHandlerInner, KspRenderProcessHandlerBuilder, INITIAL_HEIGHT, INITIAL_WIDTH,
 };
 use dg_sidecar::static_server::{self, StaticServerConfig};
 use dg_shm::{shm_path_for_session, InputEvent, ShmWriter};
@@ -35,6 +35,11 @@ use dg_shm::{shm_path_for_session, InputEvent, ShmWriter};
 /// fires, so `SidecarHost.Stop()` never gets to kill us. Without this
 /// watchdog the sidecar leaks and the user has to Force Quit it from
 /// the Dock.
+///
+/// Exit before logging: when the parent dies, our stderr pipe dies
+/// with it, and `eprintln!` panics on the resulting EPIPE — taking
+/// out the watchdog thread before `exit()` ever runs and leaving the
+/// main process to spin forever in `do_message_loop_work()`.
 #[cfg(target_os = "macos")]
 fn spawn_parent_watchdog() {
     // SAFETY: getppid() is always safe.
@@ -45,10 +50,6 @@ fn spawn_parent_watchdog() {
             std::thread::sleep(std::time::Duration::from_secs(1));
             let ppid = unsafe { libc::getppid() };
             if ppid != original_parent {
-                eprintln!(
-                    "parent-watchdog: parent {} gone (now reparented to {}) — exiting",
-                    original_parent, ppid
-                );
                 std::process::exit(0);
             }
         })
@@ -601,12 +602,18 @@ fn main() -> Result<()> {
     // Inner is Clone and all its mutable state lives behind Arcs, so
     // both this handle and the CEF-owned handler observe the same state.
     let render_inner_main = render_inner.clone();
+    // The browser-side `Client` needs a handle to the writer so it
+    // can push the SHM stream-rect table when a `dg_punch_rects`
+    // process message arrives from the renderer.
+    let writer_for_client = render_inner.writer().clone();
+
     let render_handler = KspRenderHandlerBuilder::build(render_inner);
-    let client = KspClientBuilder::build(render_handler);
+    let client = KspClientBuilder::build(render_handler, writer_for_client);
     let process_inner =
         KspBrowserProcessHandlerInner::new(client, boot_url, browser_slot.clone());
     let process_handler = KspBrowserProcessHandlerBuilder::build(process_inner);
-    let app_inner = KspAppInner::new(process_handler);
+    let render_process_handler = KspRenderProcessHandlerBuilder::build();
+    let app_inner = KspAppInner::new(Some(process_handler), render_process_handler);
     let mut app = KspAppBuilder::build(app_inner);
 
     // Session-scoped CEF cache so multiple sidecar instances don't

@@ -16,9 +16,9 @@ must mirror the constants defined here exactly.
 - **Backing:** regular file on disk, mapped into both processes via
   `memmap2::MmapMut` (Rust) and `MemoryMappedFile.CreateFromFile` (C#).
   The OS keeps hot pages in the page cache.
-- **Size:** fixed 4096 bytes (one page). Large enough for the frame
-  header + input ring; pixel bytes never flow through SHM (see
-  Transport notes below).
+- **Size:** fixed 8192 bytes (two pages). Page 1 holds the frame
+  header + input ring; page 2 holds the stream-rect table. Pixel
+  bytes never flow through SHM (see Transport notes below).
 - **Lifecycle:** sidecar creates, truncates, writes the header, then
   loops serving frames + draining input. Plugin opens read/write; if
   the file is missing or `magic` is wrong, the plugin logs and stays
@@ -55,7 +55,7 @@ are naturally aligned.
 | Offset | Size | Field              | Meaning                                                         |
 |-------:|-----:|--------------------|-----------------------------------------------------------------|
 |    0   |  4   | `magic`            | `0x534C_4744` — ASCII `"DGLS"` little-endian                    |
-|    4   |  2   | `version`          | `3`                                                             |
+|    4   |  2   | `version`          | `4`                                                             |
 |    6   |  2   | `header_size`      | `128`                                                           |
 |    8   |  4   | `width`            | frame width in pixels                                           |
 |   12   |  4   | `height`           | frame height in pixels                                          |
@@ -102,6 +102,60 @@ sample, must discard and retry.
 
 At 60 Hz the sidecar spends almost all of its time between
 `fetch_add` calls, so torn reads are statistically rare.
+
+## Stream rect table (bytes 4096–8191, sidecar → plugin)
+
+Per-stream punch-through instructions for the native plugin
+compositor. The UI declares `<PunchThrough id="…" chroma="…">`
+placeholders; their bounds and chroma colors are forwarded to the
+sidecar via `cefQuery`, which writes this table each time the set
+of rects changes. The plugin reads the table on each Unity render
+event, looks up the IOSurface (macOS) / shared D3D11 texture
+(Windows) registered for each stream's `id_hash`, and composites
+the corresponding texture under the CEF surface at the stream's
+rect — using a chroma-key shader scoped to that rect so chroma
+pixels reveal the portrait while overlay chrome painted on top of
+the placeholder is preserved.
+
+Single writer (sidecar), single reader (plugin), guarded by a u32
+seqlock at byte 4096 (same protocol as the frame header but with
+a 32-bit counter — the table is small enough that tear windows
+are already tiny).
+
+| Offset | Size | Field        | Written by | Meaning                                                  |
+|-------:|-----:|--------------|------------|----------------------------------------------------------|
+|  4096  |  4   | `seq`        | sidecar    | seqlock counter (`u32`). Odd = writer mid-update.        |
+|  4100  |  4   | `count`      | sidecar    | number of currently-active slots (`u32`, 0..16)          |
+|  4104  |  8   | _reserved_   |            | zero-filled padding to align the slot table              |
+|  4112  | 384  | `slots[16]`  | sidecar    | 16 slots × 24 bytes                                      |
+
+### Slot layout (24 bytes each)
+
+| Offset | Size | Field        | Meaning                                                                                  |
+|-------:|-----:|--------------|------------------------------------------------------------------------------------------|
+|    0   |  4   | `id_hash`    | FNV-1a (32-bit) of the stream's string id (`"kerbal:Jeb"`, etc.)                         |
+|    4   |  2   | `x`          | rect top-left x in physical pixels (`i16`)                                               |
+|    6   |  2   | `y`          | rect top-left y in physical pixels (`i16`)                                               |
+|    8   |  2   | `w`          | rect width in physical pixels (`u16`)                                                    |
+|   10   |  2   | `h`          | rect height in physical pixels (`u16`)                                                   |
+|   12   |  1   | `chroma_r`   | chroma-key red channel (`u8`, 0–255)                                                     |
+|   13   |  1   | `chroma_g`   | chroma-key green channel (`u8`)                                                          |
+|   14   |  1   | `chroma_b`   | chroma-key blue channel (`u8`)                                                           |
+|   15   |  1   | `threshold`  | max-channel distance to chroma below which a CEF pixel is keyed out (`u8`, 0–255 → 0–1) |
+|   16   |  4   | `flags`      | bitmask: bit 0 (`STREAM_FLAG_VISIBLE`) — stream is visible this frame                    |
+|   20   |  4   | _reserved_   | zero-filled                                                                              |
+
+### Stream registration
+
+The `id_hash` is matched against streams the mod has registered
+with the native plugin via P/Invoke (`DgHud_PushStreamFrame` /
+`DgHud_RemoveStream`). Slots whose `id_hash` doesn't match any
+registered stream are skipped silently — covers the lag between
+the UI mounting a `<PunchThrough>` and the mod producing frames
+for it (or vice versa).
+
+The plugin only inspects `slots[0..count]`; older slots beyond
+`count` are stale and ignored.
 
 ## Input ring (bytes 128–4095, plugin → sidecar)
 
@@ -219,12 +273,13 @@ loop forever:
   seqlock is not safe with multiple writers; the ring is SPSC only.
 - If the sidecar restarts, the plugin should re-open the file on its
   next `Update()`.
-- **Plugin writes only to the input ring** (bytes 128+) and reads
-  only the frame header. The sidecar writes only the frame header
-  and reads only the input ring.
+- **Plugin writes only to the input ring** (bytes 128–4095) and
+  reads only the frame header (bytes 0–127) and the stream-rect
+  table (bytes 4096+). The sidecar writes only the frame header
+  and the stream-rect table; reads only the input ring.
 
 ## Versioning
 
 Any breaking change to the layout bumps `version`. The plugin checks
-`version == 3` at open time; a mismatch means "sidecar is newer/older
+`version == 4` at open time; a mismatch means "sidecar is newer/older
 than I understand" — log once and stay dormant.

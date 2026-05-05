@@ -10,7 +10,15 @@ export { default as CurvedTape } from './flight/CurvedTape.svelte';
 export { default as StagingStack } from './flight/StagingStack.svelte';
 export { default as Propulsion } from './flight/Propulsion.svelte';
 export { default as ContextMenu } from './flight/ContextMenu.svelte';
+export { default as PunchThrough } from './flight/PunchThrough.svelte';
+export { default as PunchThroughProvider } from './flight/PunchThroughProvider.svelte';
 export type { MenuItem } from './flight/context-menu';
+export {
+  DEFAULT_CHROMA as PUNCH_THROUGH_DEFAULT_CHROMA,
+  DEFAULT_THRESHOLD as PUNCH_THROUGH_DEFAULT_THRESHOLD,
+  type PunchThroughEntry,
+  type PunchThroughRegistry,
+} from './flight/punch-through';
 
 export {
   formatSurfaceSpeed,

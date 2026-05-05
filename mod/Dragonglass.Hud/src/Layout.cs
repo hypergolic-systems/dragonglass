@@ -13,17 +13,20 @@ namespace Dragonglass.Hud
         public const uint Magic = 0x534C_4744;
 
         /// <summary>
-        /// Protocol version. v3 is the first version shipped under the
-        /// Dragonglass name — 4096-byte file, seqlock header + SPSC
-        /// input ring buffer at offset 128.
+        /// Protocol version. v3 was the first under the Dragonglass
+        /// name (4096-byte file, seqlock header + SPSC input ring at
+        /// offset 128). v4 grows the file to 8192 bytes and adds a
+        /// sidecar→plugin stream-rect table at offset 4096 carrying
+        /// punch-through chroma-key instructions for the native
+        /// compositor.
         /// </summary>
-        public const ushort Version = 3;
+        public const ushort Version = 4;
 
         /// <summary>Fixed header size in bytes.</summary>
         public const int HeaderSize = 128;
 
-        /// <summary>Total file size (one 4 KiB page).</summary>
-        public const int ShmFileSize = 4096;
+        /// <summary>Total file size (two 4 KiB pages in v4+).</summary>
+        public const int ShmFileSize = 8192;
 
         /// <summary>Pixel format code: BGRA8 premultiplied alpha, origin top-left.</summary>
         public const uint FormatBgra8Premul = 1;
@@ -163,5 +166,49 @@ namespace Dragonglass.Hud
         public const int MouseHeldLeft = 1 << 0;
         public const int MouseHeldRight = 1 << 1;
         public const int MouseHeldMiddle = 1 << 2;
+
+        // --- Stream rect table (v4, sidecar → plugin) ---
+        //
+        // Per-stream punch-through instructions for the native plugin
+        // compositor. Single writer (sidecar), single reader (plugin),
+        // guarded by a u32 seqlock starting at OffStreamSeq.
+
+        /// <summary>Byte offset of the stream-rect-table seqlock counter (u32).</summary>
+        public const int OffStreamSeq = 4096;
+        /// <summary>Byte offset of the active-slot count (u32).</summary>
+        public const int OffStreamCount = 4100;
+        // Bytes 4104-4111: reserved.
+        /// <summary>Byte offset of the first stream-rect slot (8-byte aligned).</summary>
+        public const int OffStreamRects = 4112;
+        /// <summary>Size of one stream-rect slot in bytes.</summary>
+        public const int StreamSlotSize = 24;
+        /// <summary>Maximum number of concurrent streams.</summary>
+        public const int StreamRectCapacity = 16;
+
+        // Stream-rect slot layout (24 bytes each):
+        //   bytes 0-3:   id_hash   (u32, FNV-1a of stream string id)
+        //   bytes 4-5:   x         (i16, physical px)
+        //   bytes 6-7:   y         (i16, physical px)
+        //   bytes 8-9:   w         (u16, physical px)
+        //   bytes 10-11: h         (u16, physical px)
+        //   byte 12:     chroma_r  (u8)
+        //   byte 13:     chroma_g  (u8)
+        //   byte 14:     chroma_b  (u8)
+        //   byte 15:     threshold (u8, max-channel distance / 255)
+        //   bytes 16-19: flags     (u32, bit 0 = visible)
+        //   bytes 20-23: reserved
+        public const int StreamOffIdHash = 0;
+        public const int StreamOffX = 4;
+        public const int StreamOffY = 6;
+        public const int StreamOffW = 8;
+        public const int StreamOffH = 10;
+        public const int StreamOffChromaR = 12;
+        public const int StreamOffChromaG = 13;
+        public const int StreamOffChromaB = 14;
+        public const int StreamOffThreshold = 15;
+        public const int StreamOffFlags = 16;
+
+        /// <summary>Flag bit: stream is currently visible. Plugin skips slots without this bit set.</summary>
+        public const uint StreamFlagVisible = 1u << 0;
     }
 }

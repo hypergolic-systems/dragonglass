@@ -68,6 +68,14 @@ namespace Dragonglass.Hud
         private float _nextShmRetryTime;
         private const float ShmRetryInterval = 0.5f;
 
+        // Staging buffer reused each frame for reading the SHM
+        // stream-rect table and forwarding to the native plugin via
+        // DgHudNative_UpdateStreamRects. Sized once for the v4
+        // capacity; we never resize it.
+        private readonly byte[] _streamRectBuf =
+            new byte[Layout.StreamRectCapacity * Layout.StreamSlotSize];
+        private int _lastStreamRectCount = -1;
+
         // True between onGameSceneLoadRequested and
         // onLevelWasLoadedGUIReady. Covers every inter-scene transition,
         // including fast sync ones (e.g. Space Center → Editor) where
@@ -284,6 +292,21 @@ namespace Dragonglass.Hud
                     NativeBridge.BackendName(_zeroCopyBackend) +
                     "] dest=" + dest.ToString("x") +
                     " renderEvent=" + _renderEventFunc.ToString("x"));
+
+                // Register the built-in checkerboard test stream once
+                // the GL pipeline is live. Lets a `<PunchThrough id="test">`
+                // in the HUD render the checkerboard under the chroma
+                // fill before any real portrait capture is wired up.
+                try
+                {
+                    uint h = NativeBridge.DgHudNative_RegisterTestStream(128, 128);
+                    Debug.Log(LogPrefix + "punch-through test stream registered (id_hash=0x" +
+                        h.ToString("x8") + ")");
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogWarning(LogPrefix + "test stream register failed: " + e.Message);
+                }
             }
         }
 
@@ -310,6 +333,37 @@ namespace Dragonglass.Hud
                 return;
             }
             NativeBridge.DgHudNative_SetTargetTexture(dest, width, height);
+        }
+
+        /// <summary>
+        /// Read the sidecar-published punch-through stream-rect table
+        /// from SHM and forward it to the native plugin via
+        /// <see cref="NativeBridge.DgHudNative_UpdateStreamRects"/>.
+        /// Cheap: a seqlock-guarded memcpy + an unmanaged P/Invoke.
+        /// Logs only when the active count changes so KSP.log stays
+        /// quiet during normal operation.
+        /// </summary>
+        private void ForwardStreamRects()
+        {
+            if (_reader == null) return;
+            int count = _reader.TryReadStreamRects(_streamRectBuf);
+            // count == 0 covers both "no streams registered" and "torn
+            // read"; either way we tell the plugin "no active rects",
+            // which is what we want — a torn read shouldn't leave a
+            // stale frame composited.
+            unsafe
+            {
+                fixed (byte* buf = _streamRectBuf)
+                {
+                    NativeBridge.DgHudNative_UpdateStreamRects(
+                        (System.IntPtr)buf, count);
+                }
+            }
+            if (count != _lastStreamRectCount)
+            {
+                _lastStreamRectCount = count;
+                Debug.Log(LogPrefix + "punch-through streams: " + count + " active");
+            }
         }
 
         /// <summary>
@@ -348,6 +402,7 @@ namespace Dragonglass.Hud
                 SampleAndForwardKeyboard();
                 UpdateKeyboardLock();
                 MaybeEmitResize();
+                ForwardStreamRects();
             }
 
             // --- Gate the overlay. Union of three signals:
