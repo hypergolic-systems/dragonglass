@@ -68,14 +68,6 @@ namespace Dragonglass.Hud
         private float _nextShmRetryTime;
         private const float ShmRetryInterval = 0.5f;
 
-        // Staging buffer reused each frame for reading the SHM
-        // stream-rect table and forwarding to the native plugin via
-        // DgHudNative_UpdateStreamRects. Sized once for the v4
-        // capacity; we never resize it.
-        private readonly byte[] _streamRectBuf =
-            new byte[Layout.StreamRectCapacity * Layout.StreamSlotSize];
-        private int _lastStreamRectCount = -1;
-
         // True between onGameSceneLoadRequested and
         // onLevelWasLoadedGUIReady. Covers every inter-scene transition,
         // including fast sync ones (e.g. Space Center → Editor) where
@@ -336,37 +328,6 @@ namespace Dragonglass.Hud
         }
 
         /// <summary>
-        /// Read the sidecar-published punch-through stream-rect table
-        /// from SHM and forward it to the native plugin via
-        /// <see cref="NativeBridge.DgHudNative_UpdateStreamRects"/>.
-        /// Cheap: a seqlock-guarded memcpy + an unmanaged P/Invoke.
-        /// Logs only when the active count changes so KSP.log stays
-        /// quiet during normal operation.
-        /// </summary>
-        private void ForwardStreamRects()
-        {
-            if (_reader == null) return;
-            int count = _reader.TryReadStreamRects(_streamRectBuf);
-            // count == 0 covers both "no streams registered" and "torn
-            // read"; either way we tell the plugin "no active rects",
-            // which is what we want — a torn read shouldn't leave a
-            // stale frame composited.
-            unsafe
-            {
-                fixed (byte* buf = _streamRectBuf)
-                {
-                    NativeBridge.DgHudNative_UpdateStreamRects(
-                        (System.IntPtr)buf, count);
-                }
-            }
-            if (count != _lastStreamRectCount)
-            {
-                _lastStreamRectCount = count;
-                Debug.Log(LogPrefix + "punch-through streams: " + count + " active");
-            }
-        }
-
-        /// <summary>
         /// Diff <c>Screen.width/height</c> against the last size we
         /// emitted and fire an <see cref="Layout.InputResize"/> event
         /// whenever they change. No-op until the shm is open —
@@ -402,7 +363,6 @@ namespace Dragonglass.Hud
                 SampleAndForwardKeyboard();
                 UpdateKeyboardLock();
                 MaybeEmitResize();
-                ForwardStreamRects();
             }
 
             // --- Gate the overlay. Union of three signals:

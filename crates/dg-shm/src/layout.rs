@@ -11,18 +11,6 @@ use std::mem::{align_of, size_of};
 pub const MAGIC: u32 = 0x534C_4744;
 
 /// Protocol version. Bump on any header layout change.
-///
-/// v2 added `OFF_IO_SURFACE_ID` / `OFF_IO_SURFACE_GEN` for the zero-copy
-/// (IOSurface) pipeline.
-///
-/// v3 grows the file from 128 bytes to 4096 bytes and adds a plugin→sidecar
-/// input event ring buffer at offset 128. The frame header (bytes 0–127)
-/// is unchanged — a v2 plugin reading a v3 file still works for frame
-/// metadata; it just won't write input events.
-///
-/// v4 grows the file to 8192 bytes and adds a sidecar→plugin stream-rect
-/// table at offset 4096, carrying per-stream chroma-key punch-through
-/// instructions for the native plugin compositor.
 pub const VERSION: u16 = 4;
 
 /// Fixed header size in bytes. Payload starts at this offset.
@@ -62,10 +50,9 @@ pub const OFF_CEF_WANTS_KEYBOARD: usize = 64;
 // (Rust) is the sole consumer. Both indices wrap naturally as u32 — the
 // modulus is taken at access time (`idx % INPUT_RING_CAPACITY`).
 
-/// Total file size in v4+. Two 4 KiB pages — first page holds the
-/// frame header + input ring (v3 layout, unchanged); second page holds
-/// the sidecar→plugin stream-rect table.
-pub const SHM_FILE_SIZE: usize = 8192;
+/// Total file size. One 4 KiB page — frame header at the front, the
+/// SPSC input ring filling the rest.
+pub const SHM_FILE_SIZE: usize = 4096;
 
 /// Byte offset of the producer write index (u32, written by plugin).
 pub const OFF_INPUT_WRITE_IDX: usize = 128;
@@ -166,73 +153,11 @@ pub const MOUSE_HELD_LEFT: i32 = 1 << 0;
 pub const MOUSE_HELD_RIGHT: i32 = 1 << 1;
 pub const MOUSE_HELD_MIDDLE: i32 = 1 << 2;
 
-// --- Stream rect table (v4, sidecar → plugin) -----------------------
-//
-// Carries per-stream punch-through instructions for the native plugin
-// compositor: where to draw each Unity-rendered embed (Kerbal portrait,
-// map inset, etc.) and the chroma color the CEF surface paints in that
-// region. Single writer (sidecar), single reader (plugin), guarded by
-// a u32 seqlock — same protocol as the frame header but with a u32
-// counter (16 slots × 24 bytes is small enough that tear windows are
-// already tiny).
-//
-// Plugin reads this table each Unity render event; the table contains
-// every stream the UI currently wants composited. Streams whose
-// `STREAM_FLAG_VISIBLE` is unset (or that aren't present in the table)
-// are not composited that frame.
-
-/// Byte offset of the stream-rect-table seqlock counter (`u32`).
-/// Lives at the start of the second page so the v3 layout below
-/// remains untouched.
-pub const OFF_STREAM_SEQ: usize = 4096;
-/// Number of currently-active slots (`u32`). Plugin only inspects
-/// `slots[0..count]`.
-pub const OFF_STREAM_COUNT: usize = 4100;
-// Bytes 4104–4111: reserved.
-/// Byte offset where the stream-rect slots begin (8-byte aligned).
-pub const OFF_STREAM_RECTS: usize = 4112;
-/// Size of one stream-rect slot in bytes.
-pub const STREAM_SLOT_SIZE: usize = 24;
-/// Maximum number of concurrent streams.
-pub const STREAM_RECT_CAPACITY: usize = 16;
-
-// --- Stream-rect slot layout (24 bytes each) ---
-
-/// Byte offset within a slot for the FNV-1a hash of the stream's
-/// string id (`u32`).
-pub const STREAM_OFF_ID_HASH: usize = 0;
-/// Byte offset within a slot for the rect's top-left x in physical
-/// pixels (`i16`).
-pub const STREAM_OFF_X: usize = 4;
-/// Byte offset within a slot for the rect's top-left y in physical
-/// pixels (`i16`).
-pub const STREAM_OFF_Y: usize = 6;
-/// Byte offset within a slot for the rect's width in physical pixels
-/// (`u16`).
-pub const STREAM_OFF_W: usize = 8;
-/// Byte offset within a slot for the rect's height in physical pixels
-/// (`u16`).
-pub const STREAM_OFF_H: usize = 10;
-/// Byte offset within a slot for the chroma-key red channel (`u8`,
-/// 0–255).
-pub const STREAM_OFF_CHROMA_R: usize = 12;
-/// Byte offset within a slot for the chroma-key green channel (`u8`).
-pub const STREAM_OFF_CHROMA_G: usize = 13;
-/// Byte offset within a slot for the chroma-key blue channel (`u8`).
-pub const STREAM_OFF_CHROMA_B: usize = 14;
-/// Byte offset within a slot for the chroma threshold (`u8`, 0–255).
-/// Interpreted in the shader as max-channel distance: pixels whose
-/// `max(|cef.rgb - chroma|)` falls below `threshold/255` are
-/// considered chroma and discarded (revealing the portrait beneath).
-/// A small soft band on either side absorbs anti-aliasing.
-pub const STREAM_OFF_THRESHOLD: usize = 15;
-/// Byte offset within a slot for the flags bitmask (`u32`).
-pub const STREAM_OFF_FLAGS: usize = 16;
-// Bytes 20–23: reserved.
-
-/// Flag bit: stream is currently visible. Plugin skips slots with
-/// this bit clear.
-pub const STREAM_FLAG_VISIBLE: u32 = 1 << 0;
+// Punch-through stream rects do NOT live in SHM. They ride directly
+// in the CEF render output (a hidden 1-px-tall encoding row at the
+// top of the page) and are decoded by the Unity-side plugin from the
+// IOSurface itself — same buffer as the visible HUD pixels, atomically
+// delivered, no IPC race possible. The sidecar is unaware of streams.
 
 /// Compile-time invariants. Any violation is a layout bug.
 const _: () = {
@@ -248,25 +173,15 @@ const _: () = {
     assert!(size_of::<u64>() == 8);
     assert!(align_of::<u64>() == 8);
 
-    // v3 input ring invariants.
+    // Input ring invariants.
+    assert!(SHM_FILE_SIZE == 4096);
     assert!(OFF_INPUT_WRITE_IDX == HEADER_SIZE); // starts right after header
     assert!(OFF_INPUT_WRITE_IDX % 4 == 0);
     assert!(OFF_INPUT_READ_IDX % 4 == 0);
     assert!(OFF_INPUT_RING % 16 == 0, "ring must be 16-byte aligned");
     assert!(INPUT_SLOT_SIZE == 16);
-    assert!(OFF_INPUT_RING + INPUT_SLOT_SIZE * INPUT_RING_CAPACITY <= 4096);
+    assert!(OFF_INPUT_RING + INPUT_SLOT_SIZE * INPUT_RING_CAPACITY <= SHM_FILE_SIZE);
     assert!(SLOT_OFF_X % 4 == 0);
     assert!(SLOT_OFF_Y % 4 == 0);
     assert!(SLOT_OFF_EXTRA % 4 == 0);
-
-    // v4 stream-rect table invariants.
-    assert!(SHM_FILE_SIZE == 8192);
-    assert!(OFF_STREAM_SEQ == 4096); // second page
-    assert!(OFF_STREAM_SEQ % 4 == 0);
-    assert!(OFF_STREAM_COUNT == OFF_STREAM_SEQ + 4);
-    assert!(OFF_STREAM_RECTS == OFF_STREAM_SEQ + 16);
-    assert!(OFF_STREAM_RECTS % 8 == 0, "stream-rect table must be 8-byte aligned");
-    assert!(STREAM_SLOT_SIZE == 24);
-    assert!(STREAM_OFF_FLAGS % 4 == 0);
-    assert!(OFF_STREAM_RECTS + STREAM_SLOT_SIZE * STREAM_RECT_CAPACITY <= SHM_FILE_SIZE);
 };

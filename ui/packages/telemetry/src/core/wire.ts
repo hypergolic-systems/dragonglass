@@ -121,3 +121,15 @@ export type PartCatalogEntryWire = [
 ];
 
 export type PartCatalogWire = PartCatalogEntryWire[];
+
+// Portraits topic. Wire: [[entry, ...]] where each entry describes
+// one Kerbal portrait the native plugin currently has a chroma-key
+// stream registered for. The UI mounts a `<PunchThrough id={id} />`
+// per entry, optionally annotating with name/role/level.
+export type PortraitEntryWire = [
+  string,  // id ("kerbal:Jeb")
+  string,  // name ("Jebediah Kerman")
+  string,  // role ("Pilot")
+  number,  // level (0–5)
+];
+export type PortraitsWire = [PortraitEntryWire[]];

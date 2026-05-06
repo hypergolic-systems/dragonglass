@@ -25,6 +25,7 @@ import type {
   PawWire,
   PartWire,
   PartCatalogWire,
+  PortraitsWire,
 } from './wire';
 
 export const ClockTopic = topic<ClockWire>('clock');
@@ -50,6 +51,14 @@ export const PawTopic = topic<PawWire>('paw');
  * reuse it for the duration of the editor scene.
  */
 export const PartCatalogTopic = topic<PartCatalogWire, PartCatalogOps>('partCatalog');
+
+/**
+ * Active Kerbal portrait roster — one entry per portrait the native
+ * plugin currently has a chroma-key stream registered for. The HUD
+ * mounts a `<PunchThrough id={entry.id} />` per active member; the
+ * compositor reveals the live IVA face beneath the placeholder.
+ */
+export const PortraitsTopic = topic<PortraitsWire>('portraits');
 
 /**
  * Per-part telemetry topic. The topic name embeds the part's KSP

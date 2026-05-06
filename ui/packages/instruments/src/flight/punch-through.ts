@@ -19,18 +19,20 @@ export const PUNCH_THROUGH_CONTEXT_KEY = Symbol('punch-through');
  *  unlikely to appear in HUD chrome. */
 export const DEFAULT_CHROMA: readonly [number, number, number] = [255, 0, 255];
 
-/** Default chroma threshold (max-channel distance, 0–255). */
-export const DEFAULT_THRESHOLD = 24;
-
 export interface PunchThroughEntry {
   /** Stream id. Hashed via FNV-1a (32-bit) on every side. */
   id: string;
-  /** Bounding rect in CSS pixels, relative to the viewport. */
-  rect: { x: number; y: number; w: number; h: number };
-  /** Chroma color [r, g, b] (each 0–255). */
+  /** The DOM node whose viewport rect locates the punch-through. The
+   *  encoder reads `getBoundingClientRect()` fresh inside its own rAF
+   *  callback so the encoded row reflects this frame's layout, not a
+   *  prior frame's cache — eliminates the inter-rAF ordering race. */
+  el: HTMLElement;
+  /** Chroma color [r, g, b] (each 0–255). Still used for the CSS
+   *  placeholder fill so the user gets a visible "portrait should
+   *  appear here" cue when the compositor isn't running (dev server,
+   *  plugin not loaded). Not transmitted: the encoded-row pipeline
+   *  doesn't chroma-key, it samples at rect-local UV. */
   chroma: readonly [number, number, number];
-  /** Max-channel distance below which a CEF pixel is keyed (0–255). */
-  threshold: number;
   /** True when the placeholder is currently visible (mounted + not
    *  fully clipped by an `IntersectionObserver`). */
   visible: boolean;

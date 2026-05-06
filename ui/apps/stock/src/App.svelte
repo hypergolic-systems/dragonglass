@@ -11,6 +11,7 @@
     type Capability,
     type ConfigData,
   } from '@dragonglass/telemetry/core';
+  import { DragonglassRoot } from '@dragonglass/instruments';
   import FlightHUD from './screens/FlightHUD/FlightHUD.svelte';
   import EditorHUD from './screens/EditorHUD.svelte';
   import ScenePlaceholder from './screens/ScenePlaceholder.svelte';
@@ -62,23 +63,16 @@
   }
 
   const game = useGame();
-
-  // Suppress the browser's default right-click context menu across
-  // the whole HUD. CEF's built-in menu (Inspect Element, Copy, etc.)
-  // is irrelevant in a KSP overlay and would visually conflict with
-  // our in-HUD context menus. Components that want a menu on
-  // right-click handle `contextmenu` themselves (with their own
-  // preventDefault in line); this listener only catches the ones
-  // that don't so nothing leaks through.
-  document.addEventListener('contextmenu', (e) => e.preventDefault());
 </script>
 
-{#if game.scene === 'FLIGHT'}
-  <FlightHUD />
-{:else if game.scene === 'EDITOR'}
-  {#if config.editor !== false}
-    <EditorHUD scene={game.scene} />
+<DragonglassRoot>
+  {#if game.scene === 'FLIGHT'}
+    <FlightHUD />
+  {:else if game.scene === 'EDITOR'}
+    {#if config.editor !== false}
+      <EditorHUD scene={game.scene} />
+    {/if}
+  {:else}
+    <ScenePlaceholder scene={game.scene} />
   {/if}
-{:else}
-  <ScenePlaceholder scene={game.scene} />
-{/if}
+</DragonglassRoot>

@@ -115,6 +115,37 @@ namespace Dragonglass.Hud
             }
         }
 
+        // Stock Kerbal portrait gallery (`KerbalPortraitGallery`).
+        // Dragonglass paints the IVA portraits via chroma-key
+        // punch-through inside the HUD, so the stock visible row
+        // would be a duplicate. We hide it visually via a
+        // CanvasGroup with alpha=0 / blocksRaycasts=false rather
+        // than `SetActive(false)` so:
+        //   * the gallery's MonoBehaviours keep ticking (so
+        //     `Portraits` stays populated for our scrape),
+        //   * `RectContainment` keeps reporting the per-portrait
+        //     rect as visible (so each `Kerbal.kerbalCam` stays
+        //     enabled and `avatarTexture` stays live),
+        //   * pointer events fall through to our HUD (so the user
+        //     can click the EVA / IVA buttons we render in HTML).
+        [HarmonyPatch(typeof(KerbalPortraitGallery), "Awake")]
+        internal static class KerbalPortraitGalleryPatch
+        {
+            [HarmonyPostfix]
+            private static void Postfix(KerbalPortraitGallery __instance)
+            {
+                if (!Capabilities.Has(Capabilities.FlightUi)) return;
+                if (__instance == null) return;
+                var go = __instance.gameObject;
+                var cg = go.GetComponent<CanvasGroup>();
+                if (cg == null) cg = go.AddComponent<CanvasGroup>();
+                cg.alpha = 0f;
+                cg.blocksRaycasts = false;
+                cg.interactable = false;
+                Debug.Log(LogPrefix + "hid KerbalPortraitGallery (CanvasGroup α=0)");
+            }
+        }
+
         // Stock stager. Dragonglass's StagingStack replaces it;
         // leaving stock's visible alongside causes duplicate icons
         // and conflicting drag targets.

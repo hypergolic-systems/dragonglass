@@ -116,14 +116,25 @@ namespace Dragonglass.Hud
             _rawImage.raycastTarget = true;
             _raycastFilter = _imageGo.AddComponent<HudRaycastFilter>();
             _raycastFilter.Configure(width, height);
-            // Vertical flip via UV remap. CEF's OnPaint delivers BGRA
-            // bytes in top-down row order (Y=0 at top), but Unity's
-            // Texture2D memory layout is bottom-up (Y=0 at bottom). Left
-            // uncorrected this reads as "mirrored text" because every
-            // glyph gets vertically flipped. A negative-height uvRect
-            // sampled from V=1 downward inverts the Y axis at the
-            // shader with zero data copy.
-            _rawImage.uvRect = new Rect(0f, 1f, 1f, -1f);
+            // Vertical flip via UV remap, plus a 1-px crop of CEF's
+            // visual top row.
+            //
+            // Why flip: CEF's OnPaint delivers BGRA bytes in top-down
+            // row order (Y=0 at top), but Unity's Texture2D memory
+            // layout is bottom-up (Y=0 at bottom). Without a flip
+            // every glyph renders mirrored vertically. A
+            // negative-height uvRect sampled from V=1 downward
+            // inverts the Y axis at the shader with zero data copy.
+            //
+            // Why the crop: the HUD page paints a hidden 1-px-tall
+            // encoding row at its visual top — the punch-through
+            // rect data lives in those pixels (decoded by the native
+            // plugin from the IOSurface). To hide it from the user
+            // we shrink the V range by 1/h: screen V=1 (top of
+            // screen) now samples texture V=1/h (one row in from
+            // CEF's visual top) instead of V=0 (the encoding row).
+            float vCrop = 1f / (float)height;
+            _rawImage.uvRect = new Rect(0f, 1f, 1f, -(1f - vCrop));
         }
 
         /// <summary>

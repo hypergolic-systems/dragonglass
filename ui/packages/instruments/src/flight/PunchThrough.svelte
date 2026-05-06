@@ -19,24 +19,22 @@
   import {
     PUNCH_THROUGH_CONTEXT_KEY,
     DEFAULT_CHROMA,
-    DEFAULT_THRESHOLD,
     type PunchThroughRegistry,
   } from './punch-through';
 
   let {
     id,
     chroma = DEFAULT_CHROMA,
-    threshold = DEFAULT_THRESHOLD,
     children,
   }: {
     /** Stream id. Must match what the mod registered with the native
      *  plugin (`DgHud_PushStreamFrame(id, …)`). */
     id: string;
-    /** Chroma color [r, g, b] (0–255 each). The plugin shader keys
-     *  this color out of the rect to reveal the portrait beneath. */
+    /** Chroma color [r, g, b] (0–255 each). Used as the CSS placeholder
+     *  fill so the user sees a visible cue when the compositor isn't
+     *  running. The encoded-row pipeline doesn't chroma-key — the
+     *  shader samples the portrait at rect-local UV. */
     chroma?: readonly [number, number, number];
-    /** Max-channel distance below which a CEF pixel is keyed (0–255). */
-    threshold?: number;
     /** Optional overlay chrome rendered above the chroma fill. */
     children?: import('svelte').Snippet;
   } = $props();
@@ -46,38 +44,21 @@
   let host = $state<HTMLDivElement | null>(null);
   let unregister: (() => void) | null = null;
 
-  function readRect(el: HTMLElement) {
-    const r = el.getBoundingClientRect();
-    return {
-      x: Math.round(r.left),
-      y: Math.round(r.top),
-      w: Math.round(r.width),
-      h: Math.round(r.height),
-    };
-  }
-
   onMount(() => {
     if (!registry || !host) return;
-    const initial = readRect(host);
     unregister = registry.register({
       id,
-      rect: initial,
+      el: host,
       chroma,
-      threshold,
       visible: true,
     });
 
-    // ResizeObserver fires whenever this element's size changes
-    // (CSS layout shifts, parent reflows). Cheap; the registry
-    // mutate is in-place.
-    const ro = new ResizeObserver(() => {
-      if (host) registry.update(id, { rect: readRect(host) });
-    });
-    ro.observe(host);
-
-    // IntersectionObserver tracks visibility — the rAF pump skips
-    // sending rects for hidden streams, so the plugin stops
-    // compositing them.
+    // IntersectionObserver tracks visibility — the encoder skips
+    // hidden streams so the plugin stops compositing them. We don't
+    // need ResizeObserver or a per-element rAF anymore: the encoder
+    // reads `getBoundingClientRect()` fresh inside its own rAF tick,
+    // so any size or position change shows up the same frame it
+    // happens.
     const io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -88,22 +69,8 @@
     );
     io.observe(host);
 
-    // Position can also change without a size change (parent scroll,
-    // sibling reflow). ResizeObserver doesn't fire on pure position
-    // shifts, so re-read on every animation frame while mounted.
-    // The registry compares by reference; per-frame allocation of a
-    // 16-byte rect object is negligible.
-    let raf = 0;
-    const tick = () => {
-      if (host) registry.update(id, { rect: readRect(host) });
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-
     return () => {
-      ro.disconnect();
       io.disconnect();
-      cancelAnimationFrame(raf);
     };
   });
 
@@ -112,12 +79,9 @@
     unregister = null;
   });
 
-  // Reactive chroma update: if the prop changes, push it to the
-  // registry so the plugin re-keys with the new color on its next
-  // render event.
   $effect(() => {
     if (!registry) return;
-    registry.update(id, { chroma, threshold });
+    registry.update(id, { chroma });
   });
 
   const chromaRgb = $derived(`rgb(${chroma[0]}, ${chroma[1]}, ${chroma[2]})`);

@@ -93,7 +93,9 @@ export {
   PawTopic,
   PartTopic,
   PartCatalogTopic,
+  PortraitsTopic,
 } from './topics';
+export type { PortraitsWire, PortraitEntryWire } from './wire';
 export {
   type PartCatalogData,
   type PartCatalogEntry,

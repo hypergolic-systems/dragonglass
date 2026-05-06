@@ -242,58 +242,6 @@ namespace Dragonglass.Hud
         }
 
         /// <summary>
-        /// Read the sidecar-published punch-through stream-rect table
-        /// under its dedicated u32 seqlock at byte 4096. Up to
-        /// <see cref="Layout.StreamRectCapacity"/> slots; the buffer
-        /// `slots` must be at least that long. Returns the active count
-        /// (0 if torn / pre-write).
-        /// </summary>
-        public int TryReadStreamRects(byte[] slots)
-        {
-            if (slots == null) return 0;
-            int needed = Layout.StreamRectCapacity * Layout.StreamSlotSize;
-            if (slots.Length < needed) return 0;
-
-            unsafe
-            {
-                byte* basePtr = null;
-                _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref basePtr);
-                try
-                {
-                    uint* seqPtr = (uint*)(basePtr + Layout.OffStreamSeq);
-                    uint* countPtr = (uint*)(basePtr + Layout.OffStreamCount);
-
-                    uint s1 = *seqPtr;
-                    System.Threading.Thread.MemoryBarrier();
-                    if ((s1 & 1u) == 1u) return 0;
-
-                    int count = (int)(*countPtr);
-                    if (count < 0 || count > Layout.StreamRectCapacity) return 0;
-
-                    int copyBytes = count * Layout.StreamSlotSize;
-                    if (copyBytes > 0)
-                    {
-                        byte* src = basePtr + Layout.OffStreamRects;
-                        fixed (byte* dst = slots)
-                        {
-                            Buffer.MemoryCopy(src, dst, slots.Length, copyBytes);
-                        }
-                    }
-
-                    System.Threading.Thread.MemoryBarrier();
-                    uint s2 = *seqPtr;
-                    if (s2 != s1) return 0;
-
-                    return count;
-                }
-                finally
-                {
-                    _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
-                }
-            }
-        }
-
-        /// <summary>
         /// Read the sidecar-published "CEF wants keyboard" flag. True
         /// when a CEF editable element is currently focused, so the
         /// plugin should apply a <c>ControlTypes.KEYBOARDINPUT</c>

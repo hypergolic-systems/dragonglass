@@ -6,14 +6,13 @@
     NavballIndicator,
     Propulsion,
     StagingStack,
-    PunchThrough,
-    PunchThroughProvider,
     formatSurfaceSpeed,
     formatAltitude,
     SPEED_SCALE,
     ALTITUDE_SCALE,
   } from '@dragonglass/instruments';
   import PartActionWindowHost from './PartActionWindowHost.svelte';
+  import PortraitGallery from './PortraitGallery.svelte';
   import '@dragonglass/instruments/flight.css';
 
   const s = useFlightData();
@@ -37,16 +36,12 @@
   );
 </script>
 
-<PunchThroughProvider>
 <div class="hud hud--navball-only">
-  <!-- Punch-through preview slot. Bottom-right corner placeholder for
-       the future Kerbal portrait gallery — the rect tracks here, so a
-       mod-side stream registered under id "test" (e.g. a checkerboard
-       from the plugin) shows through the chroma-key. With no stream
-       registered this just renders as the chroma color. -->
-  <div class="punch-preview">
-    <PunchThrough id="test" />
-  </div>
+  <!-- Live IVA portraits via chroma-key punch-through. Subscribes
+       to the PortraitsTopic for the active crew roster and mounts
+       one <PunchThrough> per Kerbal; the native plugin reveals the
+       corresponding `Kerbal.avatarTexture` underneath. -->
+  <PortraitGallery />
 
   <div class="navslot navslot--bottom-left">
     <!-- Left-side staging stack. Propulsion sits at the bottom
@@ -96,18 +91,3 @@
        the flight scene, taking every PAW subscription with it. -->
   <PartActionWindowHost />
 </div>
-</PunchThroughProvider>
-
-<style>
-  .punch-preview {
-    position: fixed;
-    right: 24px;
-    bottom: 24px;
-    width: 180px;
-    height: 180px;
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 4px;
-    overflow: hidden;
-    pointer-events: none;
-  }
-</style>

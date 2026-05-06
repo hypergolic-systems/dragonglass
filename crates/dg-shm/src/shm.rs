@@ -24,11 +24,8 @@ use crate::layout::{
     FORMAT_BGRA8_PREMUL, HEADER_SIZE, INPUT_RING_CAPACITY, INPUT_SLOT_SIZE, MAGIC,
     OFF_CEF_WANTS_KEYBOARD, OFF_FORMAT, OFF_FRAME_ID, OFF_HEADER_SIZE, OFF_HEIGHT,
     OFF_INPUT_READ_IDX, OFF_INPUT_RING, OFF_INPUT_WRITE_IDX, OFF_IO_SURFACE_GEN, OFF_IO_SURFACE_ID,
-    OFF_MAGIC, OFF_SEQ, OFF_STREAM_COUNT, OFF_STREAM_RECTS, OFF_STREAM_SEQ, OFF_STRIDE,
-    OFF_VERSION, OFF_WIDTH, SHM_FILE_SIZE, SLOT_OFF_BUTTON, SLOT_OFF_EXTRA, SLOT_OFF_TYPE,
-    SLOT_OFF_X, SLOT_OFF_Y, STREAM_OFF_CHROMA_B, STREAM_OFF_CHROMA_G, STREAM_OFF_CHROMA_R,
-    STREAM_OFF_FLAGS, STREAM_OFF_H, STREAM_OFF_ID_HASH, STREAM_OFF_THRESHOLD, STREAM_OFF_W,
-    STREAM_OFF_X, STREAM_OFF_Y, STREAM_RECT_CAPACITY, STREAM_SLOT_SIZE, VERSION,
+    OFF_MAGIC, OFF_SEQ, OFF_STRIDE, OFF_VERSION, OFF_WIDTH, SHM_FILE_SIZE, SLOT_OFF_BUTTON,
+    SLOT_OFF_EXTRA, SLOT_OFF_TYPE, SLOT_OFF_X, SLOT_OFF_Y, VERSION,
 };
 
 /// Default location for the shared file on the current OS.
@@ -49,12 +46,11 @@ pub fn shm_path_for_session(session_id: &str) -> PathBuf {
 /// Writer side of the shared-memory seqlock. Owned by the sidecar.
 ///
 /// Backed by a regular file mmapped with `MmapMut`. The file is
-/// `SHM_FILE_SIZE` (8192) bytes: page 1 holds the 128-byte frame
-/// header + input ring; page 2 holds the stream-rect table. On
-/// macOS/Linux the OS keeps hot pages in the page cache; at 60Hz the
-/// file is never actually hit. Using a real file (instead of `shm_open`)
-/// lets the C# plugin use `MemoryMappedFile.CreateFromFile` with the
-/// same path.
+/// `SHM_FILE_SIZE` (4096) bytes — the first 128 bytes are the frame
+/// header, the rest is the input ring buffer. On macOS/Linux the OS
+/// keeps hot pages in the page cache; at 60Hz the file is never actually
+/// hit. Using a real file (instead of `shm_open`) lets the C# plugin use
+/// `MemoryMappedFile.CreateFromFile` with the same path.
 pub struct ShmWriter {
     _file: File,
     mmap: MmapMut,
@@ -70,8 +66,8 @@ unsafe impl Send for ShmWriter {}
 
 impl ShmWriter {
     /// Create (or recreate) the shared file at `path` and write the
-    /// initial header. The file is `SHM_FILE_SIZE` (8192) bytes: 128-byte
-    /// frame header + input ring + stream-rect table.
+    /// initial header. The file is `SHM_FILE_SIZE` (4096) bytes: 128-byte
+    /// frame header + input ring buffer.
     pub fn create(path: &Path, width: u32, height: u32) -> Result<Self> {
         if width == 0 || height == 0 {
             bail!("invalid dimensions {}x{}", width, height);
@@ -226,62 +222,6 @@ impl ShmWriter {
         }
     }
 
-    /// Publish the active set of punch-through stream rects. Called by
-    /// the sidecar whenever the UI sends a fresh rect snapshot via
-    /// `cefQuery`. Excess rects beyond `STREAM_RECT_CAPACITY` are
-    /// silently dropped.
-    ///
-    /// Seqlock protocol mirrors `write_header_only`: bump to odd, store
-    /// the slot data + count, bump to even.
-    pub fn write_stream_rects(&mut self, rects: &[StreamRect]) {
-        let n = rects.len().min(STREAM_RECT_CAPACITY);
-        let base = self.base;
-
-        unsafe {
-            let seq = std::sync::atomic::AtomicU32::from_ptr(base.add(OFF_STREAM_SEQ) as *mut u32);
-            seq.fetch_add(1, Ordering::AcqRel);
-        }
-        std::sync::atomic::fence(Ordering::Release);
-
-        unsafe {
-            ptr::write_volatile(base.add(OFF_STREAM_COUNT) as *mut u32, n as u32);
-            for (i, r) in rects[..n].iter().enumerate() {
-                let slot = base.add(OFF_STREAM_RECTS + i * STREAM_SLOT_SIZE);
-                ptr::write_volatile(slot.add(STREAM_OFF_ID_HASH) as *mut u32, r.id_hash);
-                ptr::write_volatile(slot.add(STREAM_OFF_X) as *mut i16, r.x);
-                ptr::write_volatile(slot.add(STREAM_OFF_Y) as *mut i16, r.y);
-                ptr::write_volatile(slot.add(STREAM_OFF_W) as *mut u16, r.w);
-                ptr::write_volatile(slot.add(STREAM_OFF_H) as *mut u16, r.h);
-                ptr::write_volatile(slot.add(STREAM_OFF_CHROMA_R), r.chroma_r);
-                ptr::write_volatile(slot.add(STREAM_OFF_CHROMA_G), r.chroma_g);
-                ptr::write_volatile(slot.add(STREAM_OFF_CHROMA_B), r.chroma_b);
-                ptr::write_volatile(slot.add(STREAM_OFF_THRESHOLD), r.threshold);
-                ptr::write_volatile(slot.add(STREAM_OFF_FLAGS) as *mut u32, r.flags);
-            }
-        }
-
-        unsafe {
-            let seq = std::sync::atomic::AtomicU32::from_ptr(base.add(OFF_STREAM_SEQ) as *mut u32);
-            seq.fetch_add(1, Ordering::Release);
-        }
-    }
-}
-
-/// Plain-data record describing one punch-through stream's current
-/// state, as sent by the sidecar to the plugin via the SHM stream-rect
-/// table.
-#[derive(Debug, Clone, Copy)]
-pub struct StreamRect {
-    pub id_hash: u32,
-    pub x: i16,
-    pub y: i16,
-    pub w: u16,
-    pub h: u16,
-    pub chroma_r: u8,
-    pub chroma_g: u8,
-    pub chroma_b: u8,
-    pub threshold: u8,
-    pub flags: u32,
 }
 
 /// Reader side of the shared-memory seqlock. Used by tests and the

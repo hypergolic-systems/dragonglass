@@ -130,39 +130,60 @@ std::atomic<uint64_t> g_error_count{0};
 std::atomic<uint64_t> g_cache_miss_count{0};
 
 // ---------------------------------------------------------------------
-// Punch-through stream rect table (sidecar → plugin via SHM, mirrored
-// here from the C# side via DgHudNative_UpdateStreamRects). Each slot
-// describes one HTML <PunchThrough> placeholder: the rect to draw the
-// portrait at, the chroma color CEF paints there, and the threshold
-// for the chroma-key shader. Mirrors `StreamRect` in dg-shm and the
-// 24-byte slot layout in `crates/dg-shm/src/layout.rs`.
+// Punch-through stream rects (decoded from the CEF render itself).
+//
+// The HUD page renders a hidden 1-px-tall encoding row at `top: 0`
+// of the body. Each rAF tick fills that row with the current
+// `<PunchThrough>` registrations. Because the encoding lives inside
+// the CEF compositor frame, it is *atomically delivered* with the
+// rest of the visible pixels — no IPC race possible between the
+// portrait rect and the CEF frame it was rendered for.
+//
+// We decode by IOSurface-locking the canvas surface in the render
+// event and reading the first row's pixel bytes. CEF produces BGRA8
+// premultiplied alpha output, so any pixel with alpha < 255 has its
+// RGB scaled and we'd lose data. To survive, every encoded pixel is
+// painted with alpha=255 — which means data goes in RGB only, 3 bytes
+// per pixel.
+//
+// Page-side encoding (RGBA byte order, A=255 always):
+//
+//   pixel 0 (header):     R=magic (0xDD)  G=count    B=0
+//   per rect i, 4 pixels:
+//     pixel 1+i*4 (id_hash low 24): R=hash_b0  G=hash_b1  B=hash_b2
+//     pixel 2+i*4 (x lo/hi, y lo):  R=x_lo  G=x_hi  B=y_lo
+//     pixel 3+i*4 (y hi, w lo/hi):  R=y_hi  G=w_lo  B=w_hi
+//     pixel 4+i*4 (h lo/hi, id hi): R=h_lo  G=h_hi  B=hash_b3
+//
+// id_hash is full 32-bit FNV-1a — matching the mod's
+// `Fnv1a32` so plugin lookups against the stream texture registry
+// find a hit. Low 24 bits ride pixel 1, high 8 bits ride pixel 4's
+// otherwise-unused B byte.
+//
+// CEF converts page RGBA → IOSurface BGRA, so memory[0..3] holds
+// (page B, page G, page R, A). The decoder re-extracts the page RGB.
+//
+// The encoding row gets cropped from the user-visible output by
+// Unity's `RawImage.uvRect` adjustment.
 // ---------------------------------------------------------------------
 
 constexpr int kStreamRectCapacity = 16;
+constexpr uint8_t kEncodingMagic = 0xDD;
 
-#pragma pack(push, 1)
 struct StreamRectSlot {
     uint32_t id_hash;
     int16_t  x;
     int16_t  y;
     uint16_t w;
     uint16_t h;
-    uint8_t  chroma_r;
-    uint8_t  chroma_g;
-    uint8_t  chroma_b;
-    uint8_t  threshold;
-    uint32_t flags;
-    uint32_t _pad;
 };
-#pragma pack(pop)
-static_assert(sizeof(StreamRectSlot) == 24, "StreamRectSlot layout mismatch");
 
-constexpr uint32_t kStreamFlagVisible = 1u << 0;
-
-std::mutex g_stream_rects_mu;
+// Decoded rects from the LAST IOSurface readback. Populated once per
+// render event from the canvas IOSurface itself; consumed by the
+// chroma-key composite pass moments later. Render-thread-local — no
+// mutex needed.
 StreamRectSlot g_stream_rects[kStreamRectCapacity];
 int g_stream_rect_count = 0;
-std::atomic<uint64_t> g_stream_rect_revision{0}; // bumped on update
 
 // ---------------------------------------------------------------------
 // Stream texture registry (mod → plugin via P/Invoke).
@@ -217,6 +238,7 @@ std::mutex g_last_error_mu;
 // Forward declarations — defined further down.
 void log_prefixed(const char* fmt, ...);
 void gl_composite_streams(GLuint cef_rect_tex, uint32_t cef_w, uint32_t cef_h);
+void decode_stream_rects_from_iosurface(uint32_t io_surface_id);
 
 // Currently unused after the mach-bridge cleanup, but kept (cheap +
 // useful) so future failure paths can surface a message into KSP.log
@@ -393,31 +415,32 @@ void gl_blit(uint32_t io_surface_id) {
 
     g_blit_count.fetch_add(1, std::memory_order_relaxed);
 
-    // Composite punch-through stream rects on top of the CEF blit:
-    // anywhere CEF painted the chroma color inside a registered rect,
-    // reveal the matching stream's portrait texture instead.
+    // Decode the punch-through rect set straight out of the IOSurface
+    // we just blitted. The page rendered the rect data into a 1-px
+    // encoding row at the top of the body, so it lives inside this
+    // exact CEF frame — no separate IPC channel, no race with the
+    // pixels themselves. Then composite the matching portrait
+    // textures over those rects.
+    decode_stream_rects_from_iosurface(io_surface_id);
     gl_composite_streams(src_tex, src_w, src_h);
 }
 
 // ---------------------------------------------------------------------
-// Chroma-key shader compositor
+// Stream compositor shader
 // ---------------------------------------------------------------------
 //
-// Pass strategy: after the existing CEF→dest fullscreen blit, render a
-// small NDC quad per visible stream rect. The fragment shader samples
-// the CEF rect texture (sampler2DRect at gl_FragCoord) and the
-// stream's portrait texture (sampler2D at normalised UV inside the
-// rect); chroma-distance smoothstep blends portrait↔CEF. Outside the
-// per-rect viewport, the CEF blit's pixels stand untouched.
+// After the CEF→dest fullscreen blit, render an NDC quad per stream
+// rect. The fragment shader samples the per-stream portrait texture
+// at the rect-local UV and writes it. No chroma key needed: the rect
+// data was decoded from the same CEF frame we just blitted, so the
+// rect is *guaranteed* to land where the page's placeholder div sits
+// — we just unconditionally cover that region with the portrait.
 //
 // Lazily compiled on first composite — no GL state created until at
 // least one stream is active.
 
 GLuint g_chroma_program = 0;
-GLint g_chroma_loc_cef = -1;
 GLint g_chroma_loc_portrait = -1;
-GLint g_chroma_loc_chroma = -1;
-GLint g_chroma_loc_threshold = -1;
 GLint g_chroma_loc_rect_origin = -1;
 GLint g_chroma_loc_rect_size = -1;
 GLuint g_chroma_vao = 0;
@@ -429,47 +452,24 @@ static const char* kChromaVertSrc =
     "in vec2 a_pos;\n"
     "void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }\n";
 
-// Coordinate convention in this shader:
+// `gl_FragCoord.xy` is window-space pixel coords (GL bottom-left
+// origin). The dest 2D texture follows that convention; Unity's
+// `uvRect=(0, 1, 1, -1)` flips it for display. Per-rect viewports
+// place the fragment shader inside the rect; we just need to map
+// `gl_FragCoord` → portrait UV and emit the sample.
 //
-//   * `gl_FragCoord.xy` is window-space pixel coords with origin
-//     bottom-left (GL default).
-//   * The CEF rect texture (`u_cef`, sampler2DRect) was wrapped from
-//     an IOSurface with top-down memory layout, but `CGLTexImageIOSurface2D`
-//     maps that into the GL texture's bottom-up coord system — so a
-//     CEF-visual-top pixel ends up at GL Y=0 in the rect texture.
-//   * The dest 2D texture (Unity's RawImage backing) follows the same
-//     bottom-up convention; the prior `glBlitFramebuffer` copies
-//     coords 1:1, so dest GL (X, Y) holds CEF data from the same GL
-//     (X, Y). Unity then rolls a `uvRect = (0, 1, 1, -1)` over it to
-//     display top-up on screen.
-//
-// Implication: a CSS-style top-left rect at (rx, ry, rw, rh) lives in
-// dest GL coords at the *same* (rx, ry) — no Y flip — and we sample
-// CEF at `gl_FragCoord.xy` directly.
-//
-// For the portrait UV we still flip V because GL textures sample
-// bottom-up and our checkerboard bytes were uploaded top-down.
+// We flip V on the portrait sample because GL_TEXTURE_2D samples
+// bottom-up but our portrait bytes were uploaded top-down.
 static const char* kChromaFragSrc =
     "#version 150 core\n"
     "out vec4 frag_color;\n"
-    "uniform sampler2DRect u_cef;\n"
     "uniform sampler2D u_portrait;\n"
-    "uniform vec3 u_chroma;\n"
-    "uniform float u_threshold;\n"
     "uniform vec2 u_rect_origin;\n"  // GL coords (= CSS coords)
     "uniform vec2 u_rect_size;\n"    // w, h in pixels
     "void main() {\n"
-    "    vec2 fb = gl_FragCoord.xy;\n"
-    "    vec4 cef = texture(u_cef, fb);\n"
-    "    vec2 local = (fb - u_rect_origin) / u_rect_size;\n"
+    "    vec2 local = (gl_FragCoord.xy - u_rect_origin) / u_rect_size;\n"
     "    vec2 portrait_uv = vec2(local.x, 1.0 - local.y);\n"
-    "    vec4 portrait = texture(u_portrait, portrait_uv);\n"
-    "    vec3 d = abs(cef.rgb - u_chroma);\n"
-    "    float dist = max(max(d.r, d.g), d.b);\n"
-    "    float lo = u_threshold * 0.5;\n"
-    "    float hi = u_threshold * 1.5;\n"
-    "    float key = smoothstep(lo, hi, dist);\n"
-    "    frag_color = mix(portrait, cef, key);\n"
+    "    frag_color = texture(u_portrait, portrait_uv);\n"
     "}\n";
 
 GLuint compile_shader(GLenum type, const char* src) {
@@ -518,10 +518,7 @@ bool gl_chroma_ensure_program() {
     }
 
     g_chroma_program = prog;
-    g_chroma_loc_cef         = glGetUniformLocation(prog, "u_cef");
     g_chroma_loc_portrait    = glGetUniformLocation(prog, "u_portrait");
-    g_chroma_loc_chroma      = glGetUniformLocation(prog, "u_chroma");
-    g_chroma_loc_threshold   = glGetUniformLocation(prog, "u_threshold");
     g_chroma_loc_rect_origin = glGetUniformLocation(prog, "u_rect_origin");
     g_chroma_loc_rect_size   = glGetUniformLocation(prog, "u_rect_size");
 
@@ -577,17 +574,21 @@ GLuint stream_tex_get_or_upload(uint32_t id_hash) {
         } else {
             glBindTexture(GL_TEXTURE_2D, entry->tex);
         }
+        // Stream bytes arrive in RGBA order (Unity's
+        // `Texture2D(w, h, RGBA32)` / `AsyncGPUReadback` default), so
+        // upload as `GL_RGBA, GL_UNSIGNED_BYTE`. The CEF IOSurface
+        // path stays BGRA — different source, different byte order.
         if (entry->pending_w != entry->width || entry->pending_h != entry->height) {
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
                          (GLsizei)entry->pending_w, (GLsizei)entry->pending_h, 0,
-                         GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV,
+                         GL_RGBA, GL_UNSIGNED_BYTE,
                          entry->pending_bytes.data());
             entry->width = entry->pending_w;
             entry->height = entry->pending_h;
         } else {
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
                             (GLsizei)entry->width, (GLsizei)entry->height,
-                            GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV,
+                            GL_RGBA, GL_UNSIGNED_BYTE,
                             entry->pending_bytes.data());
         }
         glBindTexture(GL_TEXTURE_2D, 0);
@@ -596,18 +597,100 @@ GLuint stream_tex_get_or_upload(uint32_t id_hash) {
     return entry->tex;
 }
 
+// Read the encoding row from the canvas IOSurface and decode it into
+// `g_stream_rects`. Called from `gl_blit` immediately after the CEF
+// IOSurface has been published; both the row pixels and the visible
+// HUD pixels come from the same compositor frame, so the decoded
+// rects are perfectly synchronized with the CEF render the user is
+// about to see — no IPC race.
+//
+// IOSurface memory layout is BGRA (B at byte 0, A at byte 3). Each
+// encoded pixel was painted with alpha=255 to survive premultiplied
+// alpha; the data lives in (page R, page G, page B), which the
+// IOSurface stores as memory bytes (mem[2], mem[1], mem[0]).
+//
+// `pageR(p)`, `pageG(p)`, `pageB(p)` lift the page's RGB out of a
+// 4-byte BGRA pixel to keep the per-rect decoder readable.
+static inline uint8_t page_r(const uint8_t* p) { return p[2]; }
+static inline uint8_t page_g(const uint8_t* p) { return p[1]; }
+static inline uint8_t page_b(const uint8_t* p) { return p[0]; }
+
+void decode_stream_rects_from_iosurface(uint32_t io_surface_id) {
+    g_stream_rect_count = 0;
+    if (io_surface_id == 0) return;
+
+    IOSurfaceRef surface = IOSurfaceLookup((IOSurfaceID)io_surface_id);
+    if (!surface) return;
+
+    IOReturn lr = IOSurfaceLock(surface, kIOSurfaceLockReadOnly, NULL);
+    if (lr != kIOReturnSuccess) {
+        CFRelease(surface);
+        return;
+    }
+
+    const uint8_t* base = (const uint8_t*)IOSurfaceGetBaseAddress(surface);
+    size_t width = IOSurfaceGetWidth(surface);
+    constexpr int kPxPerRect = 4;
+
+    if (base && width >= (size_t)(1 + kPxPerRect * kStreamRectCapacity)) {
+        const uint8_t* p0 = base;
+        // One-shot diagnostic: log the first decode attempt so we can
+        // tell magic-mismatch vs id-hash-mismatch failure modes apart.
+        static std::atomic<bool> s_logged_first_decode{false};
+        if (!s_logged_first_decode.load(std::memory_order_relaxed)) {
+            log_prefixed("decode probe: header pixel BGRA = %02x %02x %02x %02x (expect R=0x%02x for magic)",
+                         p0[0], p0[1], p0[2], p0[3], (unsigned)kEncodingMagic);
+            s_logged_first_decode.store(true, std::memory_order_relaxed);
+        }
+        if (page_r(p0) == kEncodingMagic) {
+            int count = page_g(p0);
+            if (count > kStreamRectCapacity) count = kStreamRectCapacity;
+            static std::atomic<int> s_logged_count{-1};
+            if (s_logged_count.load(std::memory_order_relaxed) != count) {
+                log_prefixed("decode: header magic OK, %d rect(s) declared", count);
+                s_logged_count.store(count, std::memory_order_relaxed);
+            }
+            for (int i = 0; i < count; ++i) {
+                const uint8_t* p1 = base + (1 + i * kPxPerRect + 0) * 4;
+                const uint8_t* p2 = base + (1 + i * kPxPerRect + 1) * 4;
+                const uint8_t* p3 = base + (1 + i * kPxPerRect + 2) * 4;
+                const uint8_t* p4 = base + (1 + i * kPxPerRect + 3) * 4;
+
+                uint32_t id_hash =
+                    (uint32_t)page_r(p1)         |
+                    ((uint32_t)page_g(p1) <<  8) |
+                    ((uint32_t)page_b(p1) << 16) |
+                    ((uint32_t)page_b(p4) << 24);
+
+                int16_t x  = (int16_t)((uint16_t)page_r(p2) | ((uint16_t)page_g(p2) << 8));
+                uint8_t y_lo = page_b(p2);
+
+                int16_t y  = (int16_t)((uint16_t)y_lo | ((uint16_t)page_r(p3) << 8));
+                uint16_t w = (uint16_t)page_g(p3) | ((uint16_t)page_b(p3) << 8);
+
+                uint16_t h = (uint16_t)page_r(p4) | ((uint16_t)page_g(p4) << 8);
+
+                StreamRectSlot& r = g_stream_rects[i];
+                r.id_hash = id_hash;
+                r.x = x;
+                r.y = y;
+                r.w = w;
+                r.h = h;
+            }
+            g_stream_rect_count = count;
+        }
+    }
+
+    IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, NULL);
+    CFRelease(surface);
+}
+
 void gl_composite_streams(GLuint cef_rect_tex, uint32_t cef_w, uint32_t cef_h) {
     (void)cef_w;
-    // Snapshot the active rect set under the mutex so we don't hold it
-    // across GL calls.
-    StreamRectSlot rects_local[kStreamRectCapacity];
-    int n = 0;
-    {
-        std::lock_guard<std::mutex> lock(g_stream_rects_mu);
-        n = g_stream_rect_count;
-        if (n > 0) memcpy(rects_local, g_stream_rects,
-                          (size_t)n * sizeof(StreamRectSlot));
-    }
+    (void)cef_h;
+    // The rect set was decoded from the canvas IOSurface earlier in
+    // this same render event. No mutex needed — render-thread-local.
+    int n = g_stream_rect_count;
     if (n == 0) return;
     if (!gl_chroma_ensure_program()) return;
     if (g_dest_tex == 0) return;
@@ -647,18 +730,13 @@ void gl_composite_streams(GLuint cef_rect_tex, uint32_t cef_w, uint32_t cef_h) {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_dst_fbo);
 
     glUseProgram(g_chroma_program);
-    glUniform1i(g_chroma_loc_cef, 0);
-    glUniform1i(g_chroma_loc_portrait, 1);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_RECTANGLE, cef_rect_tex);
+    glUniform1i(g_chroma_loc_portrait, 0);
 
     glBindVertexArray(g_chroma_vao);
 
     int composited = 0;
     for (int i = 0; i < n; ++i) {
-        const StreamRectSlot& r = rects_local[i];
-        if ((r.flags & kStreamFlagVisible) == 0) continue;
+        const StreamRectSlot& r = g_stream_rects[i];
         if (r.w == 0 || r.h == 0) continue;
         GLuint portrait = stream_tex_get_or_upload(r.id_hash);
         if (portrait == 0) continue;
@@ -676,13 +754,8 @@ void gl_composite_streams(GLuint cef_rect_tex, uint32_t cef_w, uint32_t cef_h) {
 
         glUniform2f(g_chroma_loc_rect_origin, (float)vx, (float)vy);
         glUniform2f(g_chroma_loc_rect_size, (float)vw, (float)vh);
-        glUniform3f(g_chroma_loc_chroma,
-                    (float)r.chroma_r / 255.0f,
-                    (float)r.chroma_g / 255.0f,
-                    (float)r.chroma_b / 255.0f);
-        glUniform1f(g_chroma_loc_threshold, (float)r.threshold / 255.0f);
 
-        glActiveTexture(GL_TEXTURE1);
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, portrait);
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -691,11 +764,9 @@ void gl_composite_streams(GLuint cef_rect_tex, uint32_t cef_w, uint32_t cef_h) {
 
     // Restore state.
     glBindVertexArray((GLuint)prev_vao);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_RECTANGLE, (GLuint)prev_tex_rect);
     glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex_2d);
+    glBindTexture(GL_TEXTURE_RECTANGLE, (GLuint)prev_tex_rect);
     glActiveTexture((GLenum)prev_active_tex);
     glUseProgram((GLuint)prev_program);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prev_fbo_draw);
@@ -861,10 +932,7 @@ UnityPluginUnload()
         std::lock_guard<std::mutex> lock(g_stream_tex_mu);
         g_stream_tex.clear();
     }
-    {
-        std::lock_guard<std::mutex> lock(g_stream_rects_mu);
-        g_stream_rect_count = 0;
-    }
+    g_stream_rect_count = 0;
     {
         std::lock_guard<std::mutex> lock(g_metal_cache_mu);
         for (auto& kv : g_metal_cache) {
@@ -1128,20 +1196,21 @@ static uint32_t fnv1a_32(const char* s) {
 /// when the mod has captured a fresh frame from a Unity RenderTexture
 /// (Kerbal IVA portrait, map view, etc.).
 ///
-/// `bgra_bytes` points to `width * height * 4` bytes in BGRA8
-/// premultiplied alpha. The plugin copies them into a per-stream
-/// staging buffer; the actual GL upload happens on the render thread
-/// the next time the compositor sees this stream's rect.
+/// `rgba_bytes` points to `width * height * 4` bytes in **RGBA8**
+/// (the default Unity `Texture2D(w, h, RGBA32)` / `AsyncGPUReadback`
+/// byte order). The plugin copies them into a per-stream staging
+/// buffer; the actual GL upload happens on the render thread the
+/// next time the compositor sees this stream's rect.
 extern "C" UNITY_INTERFACE_EXPORT void
 DgHudNative_PushStreamFrame(uint32_t id_hash, int width, int height,
-                            const void* bgra_bytes)
+                            const void* rgba_bytes)
 {
-    if (id_hash == 0 || width <= 0 || height <= 0 || !bgra_bytes) return;
+    if (id_hash == 0 || width <= 0 || height <= 0 || !rgba_bytes) return;
     size_t byte_count = (size_t)width * (size_t)height * 4;
     std::lock_guard<std::mutex> lock(g_stream_tex_mu);
     StreamTexEntry& e = g_stream_tex[id_hash];  // creates if missing
     e.pending_bytes.resize(byte_count);
-    memcpy(e.pending_bytes.data(), bgra_bytes, byte_count);
+    memcpy(e.pending_bytes.data(), rgba_bytes, byte_count);
     e.pending_w = (uint32_t)width;
     e.pending_h = (uint32_t)height;
     e.has_pending = true;
@@ -1189,8 +1258,8 @@ DgHudNative_RegisterTestStream(int width, int height)
         for (int x = 0; x < width; ++x) {
             bool a = ((x / cell) + (y / cell)) & 1;
             uint8_t* p = &px[((size_t)y * width + x) * 4];
-            // BGRA premultiplied. Two contrasty colors.
-            if (a) { p[0] = 0xCC; p[1] = 0x44; p[2] = 0x88; p[3] = 0xFF; }
+            // RGBA byte order — matches PushStreamFrame's contract.
+            if (a) { p[0] = 0x88; p[1] = 0x44; p[2] = 0xCC; p[3] = 0xFF; }
             else   { p[0] = 0x22; p[1] = 0x22; p[2] = 0x22; p[3] = 0xFF; }
         }
     }
@@ -1198,35 +1267,6 @@ DgHudNative_RegisterTestStream(int width, int height)
     DgHudNative_PushStreamFrame(h, width, height, px.data());
     log_prefixed("test stream registered (id_hash=0x%08x, %dx%d)", h, width, height);
     return h;
-}
-
-/// Push the latest punch-through stream rect snapshot to the plugin.
-/// Called from C# each Update() after reading the SHM stream-rect
-/// table (sidecar wrote it in response to a `cefQuery` from the page).
-///
-/// `data` points to `count * sizeof(StreamRectSlot)` bytes laid out
-/// per the dg-shm v4 spec; `count` is clamped to `kStreamRectCapacity`.
-/// Cheap mutex copy — the actual compositing happens on the render
-/// thread.
-extern "C" UNITY_INTERFACE_EXPORT void
-DgHudNative_UpdateStreamRects(const void* data, int count)
-{
-    if (count < 0) count = 0;
-    if (count > kStreamRectCapacity) count = kStreamRectCapacity;
-    std::lock_guard<std::mutex> lock(g_stream_rects_mu);
-    int prev_count = g_stream_rect_count;
-    g_stream_rect_count = count;
-    if (count > 0 && data) {
-        memcpy(g_stream_rects, data, (size_t)count * sizeof(StreamRectSlot));
-    }
-    // Revision bump lets future render-thread code skip work when
-    // nothing changed; for now we still log on every update for
-    // visibility.
-    uint64_t rev = g_stream_rect_revision.fetch_add(1, std::memory_order_release) + 1;
-    if (count != prev_count) {
-        log_prefixed("streams: %d active (rev=%llu)",
-                     count, (unsigned long long)rev);
-    }
 }
 
 /// Detailed error breakdown so C# can tell which branch is failing

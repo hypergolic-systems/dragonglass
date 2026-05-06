@@ -24,7 +24,7 @@ use cef::{args::Args, *};
 use dg_sidecar::app::{
     BrowserSlot, KspAppBuilder, KspAppInner, KspBrowserProcessHandlerBuilder,
     KspBrowserProcessHandlerInner, KspClientBuilder, KspRenderHandlerBuilder,
-    KspRenderHandlerInner, KspRenderProcessHandlerBuilder, INITIAL_HEIGHT, INITIAL_WIDTH,
+    KspRenderHandlerInner, INITIAL_HEIGHT, INITIAL_WIDTH,
 };
 use dg_sidecar::static_server::{self, StaticServerConfig};
 use dg_shm::{shm_path_for_session, InputEvent, ShmWriter};
@@ -512,9 +512,15 @@ fn main() -> Result<()> {
         gamedata.display()
     );
 
+    // `host=ksp` tags every page load from this sidecar so the UI can
+    // distinguish "running under the KSP-launched compositor" from
+    // "running under `vite dev` / a vanilla browser tab". Used e.g. by
+    // PunchThroughProvider to decide whether the encoded-row canvas
+    // should be painted (it's only meaningful when the Unity-side
+    // plugin is on the other end).
     let boot_url = match ws_url {
-        Some(ws) => format!("{base_url}?ws={}", urlencoding::encode(ws)),
-        None => base_url,
+        Some(ws) => format!("{base_url}?host=ksp&ws={}", urlencoding::encode(ws)),
+        None => format!("{base_url}?host=ksp"),
     };
     #[cfg(target_os = "macos")]
     let _library = {
@@ -602,18 +608,13 @@ fn main() -> Result<()> {
     // Inner is Clone and all its mutable state lives behind Arcs, so
     // both this handle and the CEF-owned handler observe the same state.
     let render_inner_main = render_inner.clone();
-    // The browser-side `Client` needs a handle to the writer so it
-    // can push the SHM stream-rect table when a `dg_punch_rects`
-    // process message arrives from the renderer.
-    let writer_for_client = render_inner.writer().clone();
 
     let render_handler = KspRenderHandlerBuilder::build(render_inner);
-    let client = KspClientBuilder::build(render_handler, writer_for_client);
+    let client = KspClientBuilder::build(render_handler);
     let process_inner =
         KspBrowserProcessHandlerInner::new(client, boot_url, browser_slot.clone());
     let process_handler = KspBrowserProcessHandlerBuilder::build(process_inner);
-    let render_process_handler = KspRenderProcessHandlerBuilder::build();
-    let app_inner = KspAppInner::new(Some(process_handler), render_process_handler);
+    let app_inner = KspAppInner::new(process_handler);
     let mut app = KspAppBuilder::build(app_inner);
 
     // Session-scoped CEF cache so multiple sidecar instances don't

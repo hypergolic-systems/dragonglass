@@ -298,11 +298,11 @@ wrap_render_handler! {
             match self.handler.writer.lock() {
                 Ok(mut writer) => {
                     writer.write_header_only(canvas_id, gen);
-                    self.handler.frame_counter.fetch_add(1, Ordering::Relaxed);
+                    self.handler
+                        .frame_counter
+                        .fetch_add(1, Ordering::Relaxed);
                 }
-                Err(e) => {
-                    eprintln!("writer mutex poisoned: {e}");
-                }
+                Err(e) => eprintln!("writer mutex poisoned: {e}"),
             }
         }
 
@@ -360,11 +360,11 @@ wrap_render_handler! {
             match self.handler.writer.lock() {
                 Ok(mut writer) => {
                     writer.write_header_only(canvas_id, gen);
-                    self.handler.frame_counter.fetch_add(1, Ordering::Relaxed);
+                    self.handler
+                        .frame_counter
+                        .fetch_add(1, Ordering::Relaxed);
                 }
-                Err(e) => {
-                    eprintln!("writer mutex poisoned: {e}");
-                }
+                Err(e) => eprintln!("writer mutex poisoned: {e}"),
             }
         }
 
@@ -415,37 +415,6 @@ wrap_display_handler! {
 }
 
 // -----------------------------------------------------------------------
-// RenderProcessHandler: installs the punch-rects V8 binding on every
-// new V8 context. Created in every process the App is passed to; CEF
-// only invokes these methods in renderer subprocesses (the helper
-// binary sets things up via execute_process).
-// -----------------------------------------------------------------------
-
-wrap_render_process_handler! {
-    pub struct KspRenderProcessHandlerBuilder {}
-
-    impl RenderProcessHandler {
-        /// Install `window.dgUpdatePunchRects` so the page's rAF pump
-        /// can ship the stream-rect snapshot to the browser process.
-        fn on_context_created(
-            &self,
-            _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
-            context: Option<&mut V8Context>,
-        ) {
-            let Some(context) = context else { return };
-            crate::streams::install_punch_rects_binding(context);
-        }
-    }
-}
-
-impl KspRenderProcessHandlerBuilder {
-    pub fn build() -> RenderProcessHandler {
-        Self::new()
-    }
-}
-
-// -----------------------------------------------------------------------
 // Client: returns the render + display handlers to CEF
 // -----------------------------------------------------------------------
 
@@ -453,9 +422,6 @@ wrap_client! {
     pub struct KspClientBuilder {
         render_handler: RenderHandler,
         display_handler: DisplayHandler,
-        // Writer the punch-through handler will use to push the SHM
-        // stream-rect table when the page sends a rect snapshot.
-        writer: Arc<Mutex<ShmWriter>>,
     }
 
     impl Client {
@@ -466,36 +432,13 @@ wrap_client! {
         fn display_handler(&self) -> Option<cef::DisplayHandler> {
             Some(self.display_handler.clone())
         }
-
-        /// Dispatch renderer→browser process messages by name. Our
-        /// only consumer right now is the punch-through stream-rect
-        /// snapshot; everything else falls through (return 0) for CEF
-        /// to handle.
-        fn on_process_message_received(
-            &self,
-            _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
-            _source_process: ProcessId,
-            message: Option<&mut ProcessMessage>,
-        ) -> ::std::os::raw::c_int {
-            let Some(message) = message else { return 0 };
-            let name_userfree = message.name();
-            let name: cef::CefStringUtf16 = (&name_userfree).into();
-            let name = name.to_string();
-            if name == crate::streams::PUNCH_RECTS_MSG {
-                if crate::streams::handle_punch_rects_message(&self.writer, message) {
-                    return 1;
-                }
-            }
-            0
-        }
     }
 }
 
 impl KspClientBuilder {
-    pub fn build(render_handler: RenderHandler, writer: Arc<Mutex<ShmWriter>>) -> Client {
+    pub fn build(render_handler: RenderHandler) -> Client {
         let display_handler = KspDisplayHandlerBuilder::new();
-        Self::new(render_handler, display_handler, writer)
+        Self::new(render_handler, display_handler)
     }
 }
 
@@ -632,25 +575,12 @@ impl KspBrowserProcessHandlerBuilder {
 
 #[derive(Clone)]
 pub struct KspAppInner {
-    /// Browser-process handler. `None` in subprocess invocations like
-    /// the helper binary (which doesn't host a browser); `Some` in the
-    /// main sidecar process where we actually create the browser.
-    process_handler: Option<BrowserProcessHandler>,
-    /// Render-process handler. Always present so the renderer-side
-    /// `cefQuery` router gets installed when CEF spawns a renderer
-    /// subprocess.
-    render_process_handler: RenderProcessHandler,
+    process_handler: BrowserProcessHandler,
 }
 
 impl KspAppInner {
-    pub fn new(
-        process_handler: Option<BrowserProcessHandler>,
-        render_process_handler: RenderProcessHandler,
-    ) -> Self {
-        Self {
-            process_handler,
-            render_process_handler,
-        }
+    pub fn new(process_handler: BrowserProcessHandler) -> Self {
+        Self { process_handler }
     }
 }
 
@@ -662,27 +592,10 @@ wrap_app! {
     impl App {
         fn on_before_command_line_processing(
             &self,
-            process_type: Option<&cef::CefStringUtf16>,
+            _process_type: Option<&cef::CefStringUtf16>,
             command_line: Option<&mut cef::CommandLine>,
         ) {
             let Some(command_line) = command_line else { return };
-            // CEF invokes this for every process role — browser,
-            // renderer, gpu, utility, zygote — once we hand the same
-            // App to both the main binary and the helper subprocess
-            // entry point. The browser-process invocation has an
-            // empty / null `process_type`; subprocesses pass their
-            // role name. Apply our switches only on the browser
-            // invocation. Specifically, propagating
-            // `remote-debugging-port=9229` to the GPU subprocess was
-            // observed to silently break `on_accelerated_paint`
-            // (no frames delivered to the browser).
-            let is_browser_process = match process_type {
-                None => true,
-                Some(s) => s.to_string().is_empty(),
-            };
-            if !is_browser_process {
-                return;
-            }
             // Quiet a few things that otherwise log at startup.
             command_line.append_switch(Some(&"no-startup-window".into()));
             command_line.append_switch(Some(&"noerrdialogs".into()));
@@ -703,11 +616,7 @@ wrap_app! {
         }
 
         fn browser_process_handler(&self) -> Option<cef::BrowserProcessHandler> {
-            self.app.process_handler.clone()
-        }
-
-        fn render_process_handler(&self) -> Option<cef::RenderProcessHandler> {
-            Some(self.app.render_process_handler.clone())
+            Some(self.app.process_handler.clone())
         }
     }
 }
