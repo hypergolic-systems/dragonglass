@@ -149,16 +149,26 @@ std::atomic<uint64_t> g_cache_miss_count{0};
 // Page-side encoding (RGBA byte order, A=255 always):
 //
 //   pixel 0 (header):     R=magic (0xDD)  G=count    B=0
-//   per rect i, 4 pixels:
-//     pixel 1+i*4 (id_hash low 24): R=hash_b0  G=hash_b1  B=hash_b2
-//     pixel 2+i*4 (x lo/hi, y lo):  R=x_lo  G=x_hi  B=y_lo
-//     pixel 3+i*4 (y hi, w lo/hi):  R=y_hi  G=w_lo  B=w_hi
-//     pixel 4+i*4 (h lo/hi, id hi): R=h_lo  G=h_hi  B=hash_b3
+//   per rect i, 7 pixels (offset = 1 + i*7):
+//     pixel 0 (id_hash low 24):       R=hash_b0  G=hash_b1  B=hash_b2
+//     pixel 1 (x lo/hi, y lo):        R=x_lo     G=x_hi     B=y_lo
+//     pixel 2 (y hi, w lo/hi):        R=y_hi     G=w_lo     B=w_hi
+//     pixel 3 (h lo/hi, id hi):       R=h_lo     G=h_hi     B=hash_b3
+//     pixel 4 (clip x lo/hi, y lo):   R=cx_lo    G=cx_hi    B=cy_lo
+//     pixel 5 (clip y hi, w lo/hi):   R=cy_hi    G=cw_lo    B=cw_hi
+//     pixel 6 (clip h lo/hi):         R=ch_lo    G=ch_hi    B=0
 //
 // id_hash is full 32-bit FNV-1a — matching the mod's
 // `Fnv1a32` so plugin lookups against the stream texture registry
-// find a hit. Low 24 bits ride pixel 1, high 8 bits ride pixel 4's
+// find a hit. Low 24 bits ride pixel 0, high 8 bits ride pixel 3's
 // otherwise-unused B byte.
+//
+// Clip rect (pixels 4–6) is the element rect intersected with every
+// `overflow !== visible` ancestor and the viewport. Plugin uses it
+// as the GL viewport so portraits inside scrollable containers
+// clip cleanly at the container edge; the (full) element rect from
+// pixels 1–3 still drives the shader's UV math so visible fragments
+// sample the right slice of the portrait.
 //
 // CEF converts page RGBA → IOSurface BGRA, so memory[0..3] holds
 // (page B, page G, page R, A). The decoder re-extracts the page RGB.
@@ -172,10 +182,21 @@ constexpr uint8_t kEncodingMagic = 0xDD;
 
 struct StreamRectSlot {
     uint32_t id_hash;
+    // Element layout rect (full, unclipped). Drives the fragment
+    // shader's UV math so visible fragments sample the right portion
+    // of the portrait even when the GL viewport is a sub-rect.
     int16_t  x;
     int16_t  y;
     uint16_t w;
     uint16_t h;
+    // Visible-clip rect (element ∩ all `overflow !== visible`
+    // ancestors ∩ viewport, computed page-side). Drives `glViewport`
+    // so portraits inside scrollable containers clip cleanly at the
+    // container edge instead of spilling into the clipped region.
+    int16_t  clip_x;
+    int16_t  clip_y;
+    uint16_t clip_w;
+    uint16_t clip_h;
 };
 
 // Decoded rects from the LAST IOSurface readback. Populated once per
@@ -630,7 +651,7 @@ void decode_stream_rects_from_iosurface(uint32_t io_surface_id) {
 
     const uint8_t* base = (const uint8_t*)IOSurfaceGetBaseAddress(surface);
     size_t width = IOSurfaceGetWidth(surface);
-    constexpr int kPxPerRect = 4;
+    constexpr int kPxPerRect = 7;
 
     if (base && width >= (size_t)(1 + kPxPerRect * kStreamRectCapacity)) {
         const uint8_t* p0 = base;
@@ -650,11 +671,15 @@ void decode_stream_rects_from_iosurface(uint32_t io_surface_id) {
                 log_prefixed("decode: header magic OK, %d rect(s) declared", count);
                 s_logged_count.store(count, std::memory_order_relaxed);
             }
+            static std::atomic<bool> s_logged_first_clip{false};
             for (int i = 0; i < count; ++i) {
                 const uint8_t* p1 = base + (1 + i * kPxPerRect + 0) * 4;
                 const uint8_t* p2 = base + (1 + i * kPxPerRect + 1) * 4;
                 const uint8_t* p3 = base + (1 + i * kPxPerRect + 2) * 4;
                 const uint8_t* p4 = base + (1 + i * kPxPerRect + 3) * 4;
+                const uint8_t* p5 = base + (1 + i * kPxPerRect + 4) * 4;
+                const uint8_t* p6 = base + (1 + i * kPxPerRect + 5) * 4;
+                const uint8_t* p7 = base + (1 + i * kPxPerRect + 6) * 4;
 
                 uint32_t id_hash =
                     (uint32_t)page_r(p1)         |
@@ -670,12 +695,34 @@ void decode_stream_rects_from_iosurface(uint32_t io_surface_id) {
 
                 uint16_t h = (uint16_t)page_r(p4) | ((uint16_t)page_g(p4) << 8);
 
+                int16_t  cx    = (int16_t)((uint16_t)page_r(p5) | ((uint16_t)page_g(p5) << 8));
+                uint8_t  cy_lo = page_b(p5);
+
+                int16_t  cy    = (int16_t)((uint16_t)cy_lo | ((uint16_t)page_r(p6) << 8));
+                uint16_t cw    = (uint16_t)page_g(p6) | ((uint16_t)page_b(p6) << 8);
+
+                uint16_t ch    = (uint16_t)page_r(p7) | ((uint16_t)page_g(p7) << 8);
+
                 StreamRectSlot& r = g_stream_rects[i];
                 r.id_hash = id_hash;
                 r.x = x;
                 r.y = y;
                 r.w = w;
                 r.h = h;
+                r.clip_x = cx;
+                r.clip_y = cy;
+                r.clip_w = cw;
+                r.clip_h = ch;
+
+                // First-rect-with-non-degenerate-clip diagnostic so we
+                // can confirm the clip walk is engaging in production.
+                if (i == 0 && !s_logged_first_clip.load(std::memory_order_relaxed) &&
+                    (cx != x || cy != y || cw != w || ch != h)) {
+                    log_prefixed("decode: first clipped rect — element=%d,%d,%dx%d clip=%d,%d,%dx%d",
+                                 (int)x, (int)y, (int)w, (int)h,
+                                 (int)cx, (int)cy, (int)cw, (int)ch);
+                    s_logged_first_clip.store(true, std::memory_order_relaxed);
+                }
             }
             g_stream_rect_count = count;
         }
@@ -738,6 +785,7 @@ void gl_composite_streams(GLuint cef_rect_tex, uint32_t cef_w, uint32_t cef_h) {
     for (int i = 0; i < n; ++i) {
         const StreamRectSlot& r = g_stream_rects[i];
         if (r.w == 0 || r.h == 0) continue;
+        if (r.clip_w == 0 || r.clip_h == 0) continue;
         GLuint portrait = stream_tex_get_or_upload(r.id_hash);
         if (portrait == 0) continue;
 
@@ -746,14 +794,17 @@ void gl_composite_streams(GLuint cef_rect_tex, uint32_t cef_w, uint32_t cef_h) {
         // the same bottom-up convention after `CGLTexImageIOSurface2D`
         // and `glBlitFramebuffer`. Unity's `uvRect=(0,1,1,-1)` does
         // the visual flip at display time. So no Y inversion here.
-        GLint vx = (GLint)r.x;
-        GLint vy = (GLint)r.y;
-        GLsizei vw = (GLsizei)r.w;
-        GLsizei vh = (GLsizei)r.h;
-        glViewport(vx, vy, vw, vh);
+        //
+        // Viewport = the *clip* rect (visible region after walking
+        // ancestor `overflow:hidden` + viewport clip on the page). The
+        // shader uniforms still reference the *element* rect, so
+        // `gl_FragCoord` maps correctly to portrait UV for every
+        // visible fragment — partial scrollers sample the right slice.
+        glViewport((GLint)r.clip_x, (GLint)r.clip_y,
+                   (GLsizei)r.clip_w, (GLsizei)r.clip_h);
 
-        glUniform2f(g_chroma_loc_rect_origin, (float)vx, (float)vy);
-        glUniform2f(g_chroma_loc_rect_size, (float)vw, (float)vh);
+        glUniform2f(g_chroma_loc_rect_origin, (float)r.x, (float)r.y);
+        glUniform2f(g_chroma_loc_rect_size,   (float)r.w, (float)r.h);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, portrait);
