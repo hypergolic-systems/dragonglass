@@ -34,6 +34,11 @@ export default defineConfig({
         // structure with dynamic keys; sharing through the runtime
         // keeps everyone on the same signals.
         'svelte/reactivity':               resolve(__dirname, 'src/svelte-reactivity.ts'),
+        // Animation primitives (Tween, Spring) and easing functions —
+        // shared so HUDs that tween between values land on the same
+        // store/signal types as the rest of the runtime.
+        'svelte/motion':                   resolve(__dirname, 'src/svelte-motion.ts'),
+        'svelte/easing':                   resolve(__dirname, 'src/svelte-easing.ts'),
         three:                             resolve(__dirname, 'src/three.ts'),
         threlte:                           resolve(__dirname, 'src/threlte.ts'),
         stock:                             resolve(__dirname, 'src/stock.ts'),

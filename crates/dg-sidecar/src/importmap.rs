@@ -56,6 +56,11 @@ pub const RUNTIME_INDEX: &[RuntimeEntry] = &[
     // Shared through the runtime so everyone signals against the same
     // instance.
     RuntimeEntry { specifier: "svelte/reactivity",                   path: "svelte/reactivity.js" },
+    // Animation/easing primitives — Tween, Spring, cubicOut, etc.
+    // Mods that animate values reach for these; sharing through the
+    // runtime keeps tween stores on the same signal framework.
+    RuntimeEntry { specifier: "svelte/motion",                       path: "svelte/motion.js" },
+    RuntimeEntry { specifier: "svelte/easing",                       path: "svelte/easing.js" },
     RuntimeEntry { specifier: "three",                               path: "three.js" },
     RuntimeEntry { specifier: "@threlte/core",                       path: "threlte.js" },
     RuntimeEntry { specifier: "@dragonglass/instruments",            path: "instruments/index.js" },
