@@ -32,11 +32,7 @@ interface MutableFlightData {
   angularVelocity: Vector3;
   hasTarget: boolean;
   targetVelocity: Vector3;
-  deltaVMission: number;
   currentThrust: number;
-  stageIdx: number;
-  deltaVStage: number;
-  twrStage: number;
   speedDisplayMode: SpeedDisplayMode;
 }
 
@@ -54,11 +50,7 @@ function defaults(): MutableFlightData {
     angularVelocity: new Vector3(),
     hasTarget: false,
     targetVelocity: new Vector3(),
-    deltaVMission: 0,
     currentThrust: 0,
-    stageIdx: -1,
-    deltaVStage: 0,
-    twrStage: 0,
     speedDisplayMode: 'surface',
   };
 }
@@ -90,11 +82,7 @@ export function useFlightData(): FlightData {
       store.sas = frame.sas;
       store.rcs = frame.rcs;
       store.hasTarget = frame.hasTarget;
-      store.deltaVMission = frame.deltaVMission;
       store.currentThrust = frame.currentThrust;
-      store.stageIdx = frame.stageIdx;
-      store.deltaVStage = frame.deltaVStage;
-      store.twrStage = frame.twrStage;
       store.speedDisplayMode = frame.speedDisplayMode;
       // Nested class instances (Vector3 / Quaternion) — must be
       // freshly allocated per tick so Svelte's `$state` proxy

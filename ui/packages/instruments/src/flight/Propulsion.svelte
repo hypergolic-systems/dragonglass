@@ -18,9 +18,17 @@
   //   4. Engine rosette. Orthographic bottom-up plot of every engine
   //      on the vessel, sized ∝ √thrust, colour-coded by status.
   //
-  // Data comes from two telemetry topics:
-  //   - `useFlightData()`   — throttle, deltaVMission, deltaVStage,
-  //                            twrStage, stageIdx
+  // Data comes from three telemetry topics:
+  //   - `useFlightData()`   — throttle (and the rest of the flight
+  //                            frame, none of which Propulsion needs).
+  //   - `useStageData()`    — per-stage Δv / TWR + currentStageIdx.
+  //                            ΔV STAGE / TWR pick the entry whose
+  //                            stageNum matches currentStageIdx;
+  //                            ΔV TOTAL sums every stage. Sourcing
+  //                            from one place keeps the staging-stack
+  //                            cards and the Propulsion readouts in
+  //                            lockstep — no offset 1 Hz caches drifting
+  //                            apart between StageTopic and FlightTopic.
   //   - `useEngineData()`   — per-engine position, status, thrust,
   //                            Isp, crossfeed reach, and propellant
   //                            levels. The fuel-group partitioning
@@ -29,6 +37,7 @@
 
   import {
     useFlightData,
+    useStageData,
     useEngineData,
   } from '@dragonglass/telemetry/svelte';
   import type { EngineGroup } from '@dragonglass/telemetry/core';
@@ -40,18 +49,57 @@
   import './Propulsion.css';
 
   const s = useFlightData();
+  const stages = useStageData();
   const e = useEngineData();
 
-  const groups = $derived(groupEngines(e.engines));
+  // Filter to engines that have actually been activated (ignited at
+  // least once and not subsequently shut down). Pre-staged engines
+  // sitting in higher stages get a 'shutdown' status and are noise on
+  // the Propulsion panel: the pilot is flying with what's lit, not
+  // what's coming. Including them also breaks the rosette layout for
+  // axially-stacked engines — both points sit at vessel-local (0,0)
+  // so `idealizeEngineMap`'s centroid-relative angle is determined by
+  // sub-mm physics jitter and the layout flips every frame.
+  const activeEngines = $derived(
+    e.engines.filter((eng) => eng.status !== 'shutdown'),
+  );
 
-  const dvStage = $derived(formatDeltaV(s.deltaVStage));
-  const dvTotal = $derived(formatDeltaV(s.deltaVMission));
-  const twrText = $derived(formatTwr(s.twrStage));
+  const groups = $derived(groupEngines(activeEngines));
+
+  // Pick the active stage's Δv/TWR out of the StageTopic stream and
+  // sum mission Δv across every stage. Same backing computation that
+  // drives the staging-stack cards, so the two readouts agree by
+  // construction. PRELAUNCH fallback: if the current pointer lands on
+  // a stage with no Δv (clamps / decoupler-only), the pilot wants the
+  // upcoming firing stage's numbers — pick the highest-numbered stage
+  // with non-zero Δv. Mid-flight, the current pointer is the truth.
+  const currentStage = $derived(
+    stages.stages.find((st) => st.stageNum === stages.currentStageIdx) ?? null,
+  );
+  const fallbackStage = $derived(
+    currentStage && currentStage.deltaVActual > 0
+      ? null
+      : stages.stages
+          .filter((st) => st.deltaVActual > 0)
+          .sort((a, b) => b.stageNum - a.stageNum)[0] ?? null,
+  );
+  const reportStage = $derived(
+    fallbackStage && (!currentStage || currentStage.deltaVActual <= 0)
+      ? fallbackStage
+      : currentStage,
+  );
+  const dvMission = $derived(
+    stages.stages.reduce((sum, st) => sum + st.deltaVActual, 0),
+  );
+
+  const dvStage = $derived(formatDeltaV(reportStage?.deltaVActual ?? 0));
+  const dvTotal = $derived(formatDeltaV(dvMission));
+  const twrText = $derived(formatTwr(reportStage?.twrActual ?? 0));
   const throttlePct = $derived(Math.round(s.throttle * 100));
   const throttleClamped = $derived(Math.max(0, Math.min(100, throttlePct)));
-  const layout = $derived(idealizeEngineMap(e.engines));
+  const layout = $derived(idealizeEngineMap(activeEngines));
 
-  const totalCount = $derived(e.engines.length);
+  const totalCount = $derived(activeEngines.length);
 
   const dvStageMissing = $derived(dvStage.value === '—');
   const dvTotalMissing = $derived(dvTotal.value === '—');
@@ -216,7 +264,7 @@
     <div class="prop__fuel">
       {#each fuelRows as row (row.key)}
         <div class="prop__fuel-row">
-          <EngineIcon groupIds={row.group.engineIds} />
+          <EngineIcon {layout} groupIds={row.group.engineIds} />
           <div class="prop__fuel-gauges">
             {#each row.gauges as gauge}
               <div class="prop__fuel-gauge prop__fuel-gauge--{gauge.state}">

@@ -29,11 +29,7 @@ export type FlightWire = [
   [number, number, number, number],    // orientation quat (x, y, z, w)
   [number, number, number],            // angular velocity
   [number, number, number] | null,     // target-relative velocity
-  number,                              // deltaVMission (m/s)
   number,                              // currentThrust (kN)
-  number,                              // stageIdx
-  number,                              // deltaVStage (m/s)
-  number,                              // twrStage
   0 | 1 | 2,                           // speedDisplayMode (orbit/surface/target)
 ];
 

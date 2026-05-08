@@ -94,11 +94,7 @@ type FlightWire = [
   [number, number, number, number],    // orientation quat (x, y, z, w)
   [number, number, number],            // angular velocity
   [number, number, number] | null,     // target-relative velocity, null if no target
-  number,                              // deltaVMission (m/s)
   number,                              // currentThrust (kN)
-  number,                              // stageIdx
-  number,                              // deltaVStage (m/s)
-  number,                              // twrStage
   0 | 1 | 2,                           // speedDisplayMode byte (orbit/surface/target)
 ];
 
@@ -132,11 +128,7 @@ interface FlightMutable {
   angularVelocity: Vector3;
   hasTarget: boolean;
   targetVelocity: Vector3;
-  deltaVMission: number;
   currentThrust: number;
-  stageIdx: number;
-  deltaVStage: number;
-  twrStage: number;
   speedDisplayMode: SpeedDisplayMode;
 }
 
@@ -162,11 +154,7 @@ const flightScratch: FlightMutable = {
   angularVelocity: new Vector3(),
   hasTarget: false,
   targetVelocity: new Vector3(),
-  deltaVMission: 0,
   currentThrust: 0,
-  stageIdx: -1,
-  deltaVStage: 0,
-  twrStage: 0,
   speedDisplayMode: 'surface',
 };
 
@@ -231,12 +219,8 @@ export function decodeFlight(raw: unknown): FlightData {
     flightScratch.hasTarget = true;
     flightScratch.targetVelocity.set(vt[0], vt[1], vt[2]);
   }
-  flightScratch.deltaVMission = a[11];
-  flightScratch.currentThrust = a[12];
-  flightScratch.stageIdx = a[13];
-  flightScratch.deltaVStage = a[14];
-  flightScratch.twrStage = a[15];
-  flightScratch.speedDisplayMode = SPEED_DISPLAY_MODE[a[16]];
+  flightScratch.currentThrust = a[11];
+  flightScratch.speedDisplayMode = SPEED_DISPLAY_MODE[a[12]];
   return flightScratch as FlightData;
 }
 

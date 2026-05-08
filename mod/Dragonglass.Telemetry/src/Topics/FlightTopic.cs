@@ -33,8 +33,7 @@
 // Wire format (positional array):
 //   data: [vesselId, altAsl, altRadar, [vSurf...], [vOrb...],
 //          throttle, sas, rcs, [qx,qy,qz,qw], [wx,wy,wz], vTgt?,
-//          deltaVMission, currentThrust, stageIdx, deltaVStage, twrStage,
-//          speedMode]
+//          currentThrust, speedMode]
 //
 //     vesselId      : string GUID of the active vessel
 //     altAsl        : altitude above sea level (meters)
@@ -53,18 +52,8 @@
 //                     frame, m/s, or null when no target is set.
 //                     Matches stock KSP:
 //                     `vessel.obt_velocity - target.GetObtVelocity()`.
-//     deltaVMission : total mission remaining Δv (m/s, atmosphere-corrected,
-//                     sums all remaining stages). 0 when VesselDeltaV has
-//                     not yet run or returns no result.
 //     currentThrust : sum of instantaneous thrust across all engines on
 //                     the active vessel, in kN (ModuleEngines.finalThrust).
-//     stageIdx      : KSP's current stage index (lower numbers = later
-//                     stages). -1 when no stage is loaded.
-//     deltaVStage   : remaining Δv for the currently-active stage, m/s,
-//                     atmosphere-corrected. 0 when VesselDeltaV has not
-//                     yet run or returns no result for the stage.
-//     twrStage      : thrust-to-weight ratio for the current stage at
-//                     current conditions. 0 when unavailable.
 //     speedMode     : byte, KSP's current speed-display mode.
 //                       0 = orbit    (vOrb is the "primary" velocity)
 //                       1 = surface  (vSurf is the "primary" velocity)
@@ -72,6 +61,12 @@
 //                     Drives the client's speed-tape readout + the
 //                     prograde/retrograde marker source on the
 //                     navball.
+//
+// Δv / TWR / current-stage scalars used to live here too; they're now
+// served exclusively by `StageTopic` (one Δv simulator pass per
+// vessel, drains the per-stage list a single time and lets the UI
+// pick out whichever stage it cares about). FlightTopic stays a
+// pure flight-frame instrument.
 
 using System.Collections.Generic;
 using System.Text;
@@ -167,59 +162,11 @@ namespace Dragonglass.Telemetry.Topics
             set { if (_targetVelocity != value) { _targetVelocity = value; MarkDirty(); } }
         }
 
-        private double _deltaVMission;
-        public double DeltaVMission
-        {
-            get { return _deltaVMission; }
-            set { if (_deltaVMission != value) { _deltaVMission = value; MarkDirty(); } }
-        }
-
         private float _currentThrust;
         public float CurrentThrust
         {
             get { return _currentThrust; }
             set { if (_currentThrust != value) { _currentThrust = value; MarkDirty(); } }
-        }
-
-        // Epsilons for the stage scalars. Inherited from the old
-        // CurrentStageTopic — scalars tolerate sub-1-unit jitter; TWR
-        // half a percent.
-        private const double DvEpsilon = 0.5;
-        private const float TwrEpsilon = 0.005f;
-
-        private int _stageIdx = -1;
-        public int StageIdx
-        {
-            get { return _stageIdx; }
-            set { if (_stageIdx != value) { _stageIdx = value; MarkDirty(); } }
-        }
-
-        private double _deltaVStage;
-        public double DeltaVStage
-        {
-            get { return _deltaVStage; }
-            set
-            {
-                if (System.Math.Abs(_deltaVStage - value) > DvEpsilon)
-                {
-                    _deltaVStage = value;
-                    MarkDirty();
-                }
-            }
-        }
-
-        private float _twrStage;
-        public float TwrStage
-        {
-            get { return _twrStage; }
-            set
-            {
-                if (Mathf.Abs(_twrStage - value) > TwrEpsilon)
-                {
-                    _twrStage = value;
-                    MarkDirty();
-                }
-            }
         }
 
         // Stock KSP speed-display mode. Encoded as the same 0/1/2 byte
@@ -268,55 +215,6 @@ namespace Dragonglass.Telemetry.Topics
                 HasTarget = false;
                 TargetVelocity = Vector3.zero;
             }
-
-            // Total mission remaining Δv across all staged burns,
-            // atmosphere-corrected for the vessel's current altitude.
-            // `VesselDeltaV` is lazily populated by stock KSP and may
-            // be null (e.g. just after vessel load, before the stage
-            // simulator runs) — publish 0 and let the client render
-            // "—" rather than gambling on a stale value.
-            DeltaVMission = v.VesselDeltaV != null
-                ? v.VesselDeltaV.TotalDeltaVActual
-                : 0.0;
-
-            // Per-stage Δv / TWR from the same stock simulator. Pulled
-            // off `VesselDeltaV.GetStage(...)` which KSP keeps cached;
-            // we don't trigger the simulation ourselves.
-            //
-            // Once in flight, `v.currentStage` is the truth — if it
-            // points to a genuinely engineless stage (e.g. a coasting
-            // stage after a burnout) that's real information and the
-            // panel should read 0 Δv, not paper over it with the next
-            // upcoming stage.
-            //
-            // The launchpad is the one exception: before staging has
-            // happened at all, `currentStage` can point to a pseudo-
-            // stage that just holds launch clamps / decouplers. There
-            // is no active stage yet and the pilot wants to see the
-            // upcoming launch burn's numbers. Detect this via
-            // `Situations.PRELAUNCH` and fall through to the highest-
-            // numbered stage with non-zero thrust in that case only.
-            int reportStageIdx = v.currentStage;
-            double stageDv = 0;
-            float stageTwr = 0f;
-            if (v.VesselDeltaV != null)
-            {
-                DeltaVStageInfo stage = v.VesselDeltaV.GetStage(v.currentStage);
-                if ((stage == null || stage.thrustActual <= 0f)
-                    && v.situation == Vessel.Situations.PRELAUNCH)
-                {
-                    stage = FindNextFiringStage(v.VesselDeltaV);
-                }
-                if (stage != null)
-                {
-                    reportStageIdx = stage.stage;
-                    stageDv = stage.deltaVActual;
-                    stageTwr = stage.TWRActual;
-                }
-            }
-            StageIdx = reportStageIdx;
-            DeltaVStage = stageDv;
-            TwrStage = stageTwr;
 
             // Stock speed-display mode. The enum values are
             // Orbit=0, Surface=1, Target=2 — we ship the raw byte
@@ -372,26 +270,6 @@ namespace Dragonglass.Telemetry.Topics
         // horizontal plane yields zero. We fall back to identity;
         // heading will be undefined at the pole while pitch and roll
         // still make sense.
-        // Highest-numbered operating stage with non-zero thrust — i.e.
-        // the next stage that will actually do something. Used as a
-        // prelaunch-only fallback when stock's `currentStage` pointer
-        // lands on an engine-less pseudostage (clamps / decouplers
-        // only) before any staging has occurred. Returns null when
-        // nothing on the vessel has thrust.
-        private static DeltaVStageInfo FindNextFiringStage(VesselDeltaV vdv)
-        {
-            List<DeltaVStageInfo> stages = vdv.OperatingStageInfo;
-            if (stages == null) return null;
-            DeltaVStageInfo best = null;
-            for (int i = 0; i < stages.Count; i++)
-            {
-                DeltaVStageInfo s = stages[i];
-                if (s == null || s.thrustActual <= 0f) continue;
-                if (best == null || s.stage > best.stage) best = s;
-            }
-            return best;
-        }
-
         private static Quaternion SurfaceRotation(Vessel v)
         {
             Vector3 up = v.upAxis;
@@ -462,15 +340,7 @@ namespace Dragonglass.Telemetry.Topics
             else Json.WriteNull(sb);
             sb.Append(',');
 
-            Json.WriteDouble(sb, _deltaVMission);
-            sb.Append(',');
             Json.WriteFloat(sb, _currentThrust);
-            sb.Append(',');
-            Json.WriteLong(sb, _stageIdx);
-            sb.Append(',');
-            Json.WriteDouble(sb, _deltaVStage);
-            sb.Append(',');
-            Json.WriteFloat(sb, _twrStage);
             sb.Append(',');
             sb.Append(_speedMode);
 

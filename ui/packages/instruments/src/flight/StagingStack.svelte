@@ -45,20 +45,32 @@
   const ops = useStageOps();
   const revert = useRevertSignal();
 
+  // Drop the active stage from the stack — its Δv / TWR / parts list
+  // is what the Propulsion panel directly below already shows, and
+  // duplicating one card's worth of telemetry next to its own readout
+  // wastes panel real estate. The stack is now strictly the "what's
+  // queued up after this burn" preview.
   const ordered = $derived(
-    [...s.stages].sort((a, b) => a.stageNum - b.stageNum),
+    [...s.stages]
+      .filter((stage) => stage.stageNum !== s.currentStageIdx)
+      .sort((a, b) => a.stageNum - b.stageNum),
   );
 
   let container = $state<HTMLElement | null>(null);
 
   $effect(() => {
-    // Depend on the current stage id so the effect fires on staging
-    // transitions. The DOM query runs after Svelte has updated the
-    // .stage-card--active class on the freshly-active card.
+    // Re-run the scroll-into-view pass on staging transitions. With
+    // the active stage filtered out of the stack there's no
+    // `.stage-card--active` to anchor on; instead, after a stage
+    // activates the freshly-revealed neighbour (the next stage to
+    // fire) is the one the pilot most likely wants in view, so scroll
+    // the highest-numbered remaining card to the bottom of the
+    // viewport. No-op if everything already fits.
     void s.currentStageIdx;
     if (!container) return;
-    const active = container.querySelector<HTMLElement>('.stage-card--active');
-    if (active) active.scrollIntoView({ block: 'nearest' });
+    const cards = container.querySelectorAll<HTMLElement>('[data-stage-num]');
+    const last = cards[cards.length - 1];
+    if (last) last.scrollIntoView({ block: 'nearest' });
   });
 
   // ---- Right-click context menu state ----

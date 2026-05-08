@@ -44,21 +44,8 @@ export interface FlightData {
    * target-prograde / target-retrograde markers.
    */
   readonly targetVelocity: Vector3;
-  /** Total mission remaining Δv, m/s, atmosphere-corrected across all
-   *  remaining stages. 0 when KSP's stage simulator hasn't produced a
-   *  result yet. */
-  readonly deltaVMission: number;
   /** Summed instantaneous engine thrust on the active vessel, kN. */
   readonly currentThrust: number;
-  /** KSP's current stage index. Lower numbers = later stages. -1 when
-   *  no stage is loaded. */
-  readonly stageIdx: number;
-  /** Stage remaining Δv, m/s, atmosphere-corrected. 0 when
-   *  unavailable. */
-  readonly deltaVStage: number;
-  /** Stage thrust-to-weight ratio at current conditions. 0 when
-   *  unavailable. */
-  readonly twrStage: number;
   /** Stock KSP speed-display mode. Drives the speed tape's readout
    *  and label, and the navball's prograde/retrograde marker source:
    *    'orbit'   → orbitalVelocity

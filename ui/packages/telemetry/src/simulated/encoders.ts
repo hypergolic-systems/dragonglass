@@ -73,11 +73,7 @@ export function encodeFlight(d: FlightData): FlightWire {
     d.hasTarget
       ? [d.targetVelocity.x, d.targetVelocity.y, d.targetVelocity.z]
       : null,
-    d.deltaVMission,
     d.currentThrust,
-    d.stageIdx,
-    d.deltaVStage,
-    d.twrStage,
     SPEED_DISPLAY_MODE_INDEX[d.speedDisplayMode] ?? 1,
   ];
 }

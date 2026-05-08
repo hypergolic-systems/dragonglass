@@ -1,19 +1,23 @@
 <script lang="ts">
-  // Tiny engine-layout icon — one per fuel group in the CurrentStage
-  // panel. Shares its layout math with the Propulsion rosette via
-  // `idealizeEngineMap`, so the relative positions read consistently
-  // across both instruments. Engines belonging to the highlighted
+  // Tiny engine-layout icon — one per fuel group in the Propulsion
+  // panel. Receives the same `EngineMapLayout` the main rosette is
+  // drawn from, so positions read identically across both instruments
+  // (and any caller-side filter like "hide unactivated engines"
+  // applies to both at once). Engines belonging to the highlighted
   // group render as filled teal discs; everyone else renders as
   // thin muted outlines, so the icon answers "which engines are in
   // this group?" at a glance without repeating the full rosette.
 
-  import { useEngineData } from '@dragonglass/telemetry/svelte';
-  import { idealizeEngineMap } from './engine-map';
+  import type { EngineMapLayout } from './engine-map';
 
-  let { groupIds }: { groupIds: readonly string[] } = $props();
+  let {
+    layout,
+    groupIds,
+  }: {
+    layout: EngineMapLayout;
+    groupIds: readonly string[];
+  } = $props();
 
-  const e = useEngineData();
-  const layout = $derived(idealizeEngineMap(e.engines));
   const inGroup = $derived(new Set(groupIds));
 </script>
 
