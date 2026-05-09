@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@300;400;500;600;700&family=Unica+One&display=swap');
 
 :root {
-  --font-mono: 'Azeret Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-mono: ui-monospace, SFMono-Regular, monospace;
   --font-display: 'Unica One', 'Azeret Mono', sans-serif;
 
   --bg: #040710;
