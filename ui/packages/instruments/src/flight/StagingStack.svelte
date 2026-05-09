@@ -56,6 +56,27 @@
       .sort((a, b) => a.stageNum - b.stageNum),
   );
 
+  // Cumulative Δv per stage = this stage's Δv + every stage that
+  // fires AFTER it. KSP convention: highest stageNum fires first,
+  // descending to 0 last — so "fires after" = lower stageNum. For
+  // each card we sum its own Δv with every stage having a strictly
+  // smaller stageNum, across the FULL `s.stages` set (active stage
+  // included, since it contributes Δv to the running total even
+  // though we don't show it as a card). Map keyed by stageNum keeps
+  // the per-card lookup O(1). We compute over s.stages, not
+  // `ordered`, so the active stage's Δv still rolls into totals
+  // shown on stages stacked above it.
+  const cumulative = $derived.by(() => {
+    const ascByStage = [...s.stages].sort((a, b) => a.stageNum - b.stageNum);
+    const out = new Map<number, number>();
+    let running = 0;
+    for (const st of ascByStage) {
+      running += st.deltaVActual ?? 0;
+      out.set(st.stageNum, running);
+    }
+    return out;
+  });
+
   let container = $state<HTMLElement | null>(null);
 
   $effect(() => {
@@ -479,6 +500,7 @@
     {#each ordered as stage (stage.stageNum)}
       <StageCard
         stage={stage}
+        cumulativeDeltaV={cumulative.get(stage.stageNum)}
         active={stage.stageNum === s.currentStageIdx}
         dropHint={dropHintFor(stage)}
         translateY={cardTranslate(stage)}

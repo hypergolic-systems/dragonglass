@@ -25,6 +25,7 @@
 
   let {
     stage,
+    cumulativeDeltaV,
     active,
     dropHint,
     translateY,
@@ -37,6 +38,13 @@
     onStageDragStart,
   }: {
     stage: StageEntry;
+    /** Δv (m/s) summed from this stage onward through every stage
+     *  that fires after it — i.e. the running total a pilot watching
+     *  this stage burn would consume + retain to reach orbit. Top of
+     *  the stack (final stage) shows just its own Δv; bottom (first
+     *  to fire) shows the whole vessel's Δv budget. Optional — when
+     *  absent, the TOTAL row hides. */
+    cumulativeDeltaV?: number;
     active: boolean;
     /** Authored-pixel vertical offset during stage-drag. For the
      *  dragged card itself this is the clamped cursor delta; for
@@ -90,6 +98,9 @@
 
   const dv = $derived(formatDeltaV(stage.deltaVActual));
   const twr = $derived(formatTwr(stage.twrActual));
+  const total = $derived(
+    cumulativeDeltaV != null ? formatDeltaV(cumulativeDeltaV) : null,
+  );
   const renderItems = $derived(expandStageParts(stage.parts, ungrouped));
 </script>
 
@@ -127,6 +138,19 @@
         </span>
       </span>
     </div>
+    {#if total}
+      <div class="stage-card__row stage-card__row--total">
+        <span class="stage-card__label">TOT</span>
+        <span class="stage-card__value">
+          <span
+            class="stage-card__num-text stage-card__num-text--total"
+            class:stage-card__num-text--null={total.value === '—'}
+          >
+            {total.value}
+          </span>
+        </span>
+      </div>
+    {/if}
   </div>
 
   {#if renderItems.length > 0}
@@ -295,6 +319,27 @@
 
   .stage-card__num-text--null {
     color: var(--fg-dim);
+    text-shadow: none;
+  }
+
+  /* Cumulative-Δv row reads as a derived metric — same rhythm as ΔV /
+     TWR but a half-step quieter (smaller numeric, no glow even on
+     active card) so the eye finds the per-stage ΔV first and treats
+     TOT as supporting context. Top divider keeps the section as
+     visually distinct from the live stats above. */
+  .stage-card__row--total {
+    margin-top: 2px;
+    padding-top: 3px;
+    border-top: 1px dashed var(--line);
+    opacity: 0.78;
+  }
+  .stage-card__num-text--total {
+    font-size: 11px;
+    color: var(--fg);
+    text-shadow: none;
+  }
+  .stage-card--active .stage-card__num-text--total {
+    color: var(--fg);
     text-shadow: none;
   }
 
