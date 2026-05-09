@@ -11,6 +11,7 @@ export {
   CAP_EDITOR_PARTS,
   CAP_EDITOR_PAW,
   CAP_EDITOR_STAGING,
+  CAP_EDITOR_TOOLBAR,
 } from './capabilities';
 export { type FlightData, type SpeedDisplayMode } from './flight-data';
 export {
