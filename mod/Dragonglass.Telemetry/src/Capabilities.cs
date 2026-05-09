@@ -29,10 +29,11 @@ namespace Dragonglass.Telemetry
         public const string EditorParts   = "editor/parts";
         public const string EditorPaw     = "editor/paw";
         public const string EditorStaging = "editor/staging";
+        public const string EditorToolbar = "editor/toolbar";
 
         private static readonly HashSet<string> Known = new HashSet<string>
         {
-            FlightUi, FlightPaw, EditorParts, EditorPaw, EditorStaging,
+            FlightUi, FlightPaw, EditorParts, EditorPaw, EditorStaging, EditorToolbar,
         };
 
         private static HashSet<string> _current = new HashSet<string>();

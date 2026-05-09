@@ -72,5 +72,83 @@ namespace Dragonglass.Hud
                 Debug.Log(LogPrefix + "hid EditorPanels." + label);
             }
         }
+
+        // ApplicationLauncher is the persistent app-button strip stock
+        // KSP shows along the screen edge — Engineer's Report, Stock dV,
+        // Alarm Clock, KSPedia, Action Groups, Crew Manifest, etc. In
+        // the editor it lives along the bottom; UIs that draft their
+        // own analysis tools (Δv, mass, crew rosters) want it gone so
+        // those affordances don't double up.
+        //
+        // ApplicationLauncher is `DontDestroyOnLoad`, so a one-shot
+        // `Hide()` would persist into Flight too — unwanted, since
+        // Flight may still need stock app buttons. We scope by patching
+        // `Show()` to short-circuit while we're in the editor scene
+        // with `editor/toolbar` declared, and additionally calling
+        // `Hide()` once on each EditorAny scene entry to wipe whatever
+        // visibility state stock left behind from the previous scene.
+        // OnDestroy of the addon (scene exit) calls `Show()` so Flight
+        // and the Space Center see the launcher again.
+        [HarmonyPatch(typeof(ApplicationLauncher), nameof(ApplicationLauncher.Show))]
+        internal static class ApplicationLauncherShowPatch
+        {
+            [HarmonyPrefix]
+            private static bool Prefix()
+            {
+                if (HighLogic.LoadedScene != GameScenes.EDITOR) return true;
+                return !Capabilities.Has(Capabilities.EditorToolbar);
+            }
+        }
+
+        // Editor-scene addon. Calls Hide() once on entry (after stock
+        // initialization has run) and Show() on exit so Flight isn't
+        // poisoned. Capabilities arrive via the UI's setCapabilities
+        // op, which runs on the same main thread as Start — but the
+        // UI may not be connected yet on the very first editor entry
+        // after KSP launch. The poll-once-then-stop pattern handles
+        // both cases without paying a per-frame cost: we re-check
+        // every Update for ~3 s, then disable Update; if caps still
+        // haven't arrived by then, the stock launcher stays visible
+        // until the next scene transition.
+        [KSPAddon(KSPAddon.Startup.EditorAny, once: false)]
+        internal class ApplicationLauncherEditorHider : MonoBehaviour
+        {
+            private const float PollWindow = 3.0f;
+            private float _started;
+            private bool _applied;
+
+            private void Start()
+            {
+                _started = Time.realtimeSinceStartup;
+                TryApply();
+            }
+
+            private void Update()
+            {
+                if (_applied) { enabled = false; return; }
+                if (Time.realtimeSinceStartup - _started > PollWindow)
+                {
+                    enabled = false;
+                    return;
+                }
+                TryApply();
+            }
+
+            private void TryApply()
+            {
+                if (!Capabilities.Has(Capabilities.EditorToolbar)) return;
+                var launcher = ApplicationLauncher.Instance;
+                if (launcher == null) return;
+                launcher.Hide();
+                _applied = true;
+                Debug.Log(LogPrefix + "hid ApplicationLauncher (editor/toolbar)");
+            }
+
+            private void OnDestroy()
+            {
+                var launcher = ApplicationLauncher.Instance;
+                if (launcher != null) launcher.Show();
+            }
+        }
     }
 }
