@@ -130,14 +130,6 @@
         </span>
       </span>
     </div>
-    <div class="stage-card__row">
-      <span class="stage-card__label">TWR</span>
-      <span class="stage-card__value">
-        <span class="stage-card__num-text" class:stage-card__num-text--null={twr === '—'}>
-          {twr}
-        </span>
-      </span>
-    </div>
     {#if total}
       <div class="stage-card__row stage-card__row--total">
         <span class="stage-card__label">TOT</span>
@@ -151,6 +143,14 @@
         </span>
       </div>
     {/if}
+    <div class="stage-card__row">
+      <span class="stage-card__label">TWR</span>
+      <span class="stage-card__value">
+        <span class="stage-card__num-text" class:stage-card__num-text--null={twr === '—'}>
+          {twr}
+        </span>
+      </span>
+    </div>
   </div>
 
   {#if renderItems.length > 0}
@@ -322,19 +322,16 @@
     text-shadow: none;
   }
 
-  /* Cumulative-Δv row reads as a derived metric — same rhythm as ΔV /
-     TWR but a half-step quieter (smaller numeric, no glow even on
-     active card) so the eye finds the per-stage ΔV first and treats
-     TOT as supporting context. Top divider keeps the section as
-     visually distinct from the live stats above. */
+  /* Cumulative-Δv row sits between ΔV and TWR — same numeric weight
+     as the per-stage ΔV (13 px Unica One) but rendered in --fg
+     without the active-card glow, so the eye still finds per-stage
+     ΔV first and reads TOT as the running total it sums into. The
+     opacity step keeps it tonally subordinate without making the
+     numeric itself smaller. */
   .stage-card__row--total {
-    margin-top: 2px;
-    padding-top: 3px;
-    border-top: 1px dashed var(--line);
     opacity: 0.78;
   }
   .stage-card__num-text--total {
-    font-size: 11px;
     color: var(--fg);
     text-shadow: none;
   }
