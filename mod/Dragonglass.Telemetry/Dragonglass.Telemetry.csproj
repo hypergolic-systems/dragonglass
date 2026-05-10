@@ -21,6 +21,10 @@
     <NoConfig>true</NoConfig>
     <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
     <DebugType>portable</DebugType>
+    <!-- Json.WriteRaw takes a (byte*, int) for FFI-bytes splice paths
+         (e.g. Nova reading pre-serialized JSON from a Rust simulator
+         and forwarding it through this assembly's broadcaster). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     <KspManaged>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', 'stubs'))</KspManaged>
   </PropertyGroup>

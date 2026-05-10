@@ -23,8 +23,27 @@ using System.Text;
 
 namespace Dragonglass.Telemetry.Util
 {
-    internal static class Json
+    public static class Json
     {
+        /// <summary>
+        /// Splice a UTF-8 byte buffer into <paramref name="sb"/>
+        /// verbatim. Used by topics whose payload is pre-serialized
+        /// elsewhere (e.g. an FFI bridge handing back JSON bytes from
+        /// a Rust simulator). The bytes must be valid UTF-8 JSON;
+        /// no validation is performed.
+        ///
+        /// net48 has no span-based <c>StringBuilder.Append</c>, so
+        /// the bytes round-trip through a <c>string</c>. Payloads at
+        /// this seam are small and the call rate is bounded by the
+        /// broadcaster's flush cadence (10 Hz), so the alloc cost
+        /// is negligible.
+        /// </summary>
+        public static unsafe void WriteRaw(StringBuilder sb, byte* ptr, int len)
+        {
+            if (ptr == null || len <= 0) return;
+            sb.Append(System.Text.Encoding.UTF8.GetString(ptr, len));
+        }
+
         public static void WriteString(StringBuilder sb, string s)
         {
             if (s == null) { sb.Append("null"); return; }
