@@ -31,7 +31,7 @@ using UnityEngine;
 
 namespace Dragonglass.Hud
 {
-    internal static class NativeBridge
+    public static class NativeBridge
     {
         // On Windows this resolves to Dragonglass_Hud/Plugins/
         // DgHudNative.dll (same dir as the managed DLL — the only
